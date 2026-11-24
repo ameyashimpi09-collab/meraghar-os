@@ -37,13 +37,35 @@ export async function GET() {
         const owners = tables ? (await db.query("select count(*)::int as n from profiles where role = 'owner' and is_active")).rows[0].n : 0;
         const loginFns = (await db.query("select to_regprocedure('public.app_auth_find_login(text)') is not null as ok")).rows[0].ok;
         if (loginFns) await db.query("select * from app_auth_find_login('status-check@invalid')"); // same path as sign-in
+        const r2 = (await db.query(
+          "select to_regclass('public.stored_files') is not null and to_regprocedure('public.approval_publish(uuid)') is not null and to_regprocedure('public.app_reminder_status()') is not null as ok")).rows[0].ok as boolean;
+        const reminders = r2 ? ((await db.query("select app_reminder_status() as s")).rows[0].s as {
+          cron_installed: boolean; job_scheduled: boolean; last_run: string | null; last_count: number | null }) : null;
         await db.query("set local role authenticated");
-        return { tables, owners, loginFns };
+        return { tables, owners, loginFns, r2, reminders };
       });
       checks.push({ name: "Connect to database", ok: true, detail: "Connected." });
       checks.push({ name: "Step 1 (setup.sql)", ok: r.tables, detail: r.tables ? "Tables found." : "Tables not found. Run setup.sql in Supabase SQL Editor." });
       checks.push({ name: "Step 2 (owner login)", ok: r.owners > 0, detail: r.owners > 0 ? "Owner account found." : "No owner yet. Run first-owner.sql." });
       checks.push({ name: "Sign-in functions (step 3)", ok: r.loginFns, detail: r.loginFns ? "Sign-in works." : "Missing. Run supabase/migrations/0003_auth_functions.sql in Supabase SQL Editor." });
+      checks.push({
+        name: "Release 2 update (release2.sql)",
+        ok: r.r2,
+        detail: r.r2 ? "Approvals, payments and reminders are set up." : "Not run yet. Paste supabase/release2.sql into Supabase → SQL Editor and press Run.",
+      });
+      if (r.r2 && r.reminders) {
+        const rm = r.reminders;
+        const last = rm.last_run ? new Date(rm.last_run).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }) : null;
+        checks.push({
+          name: "Daily reminders (8:00 AM)",
+          ok: rm.cron_installed && rm.job_scheduled,
+          detail: !rm.cron_installed
+            ? "Supabase Cron is switched off. In Supabase open Integrations → Cron → Enable, then run release2.sql again."
+            : !rm.job_scheduled
+              ? "Cron is on but the reminder job is missing. Run release2.sql again in the SQL Editor."
+              : `Scheduled every day at 8:00 AM India time.${last ? ` Last run ${last}, ${rm.last_count ?? 0} reminder(s) sent.` : " It has not run yet."}`,
+        });
+      }
     } catch (e) {
       const err = e as { code?: string; message?: string };
       let hint = "";

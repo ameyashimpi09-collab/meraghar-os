@@ -1,4 +1,4 @@
-# Meraghar OS — Release 1 (Operational foundation)
+# Meraghar OS — Release 2 (Commercial control)
 
 Interior project operating system for Meraki Interior E-Solutions LLP.
 
@@ -8,6 +8,18 @@ Interior project operating system for Meraki Interior E-Solutions LLP.
 - Employee portal: my dashboard, my tasks (status updates save), my projects
 - Client portal: premium overview answering "what's happening / progress / what we need from you / what's next", project details and timeline, account
 - Full PostgreSQL schema for all six releases (`supabase/migrations`), with Row Level Security on every table, business-rule triggers (immutable approvals, non-deletable payments, etc.) and an audit trail
+
+## What's in Release 2
+- **Design & material approvals**: per project / area / category / item, with design images and PDFs, brand, type, specs, colour, finish, dimensions, quantity, commercial impact, deadline, manager's notes. Client can Approve (explicit tick), Request changes or Ask a question. Every sent revision is locked in the database; an approved revision can never change; revising creates a new revision. Full history with who/when.
+- **Payments**: custom schedule per project, partial and full payments, receipts (optionally shared with the client), void with reason (never delete), due-date changes with a recorded reason, management-only "On hold", paused reminders, internal collection notes, collection history. Balances and statuses are always calculated from recorded payments.
+- **Reminders**: daily at 8:00 AM IST via Supabase Cron (`run_reminders()`), payments at -7/-3/0/+1 days then every 3 days (limit configurable), approvals at -2/0 days then the same overdue pattern. Each reminder is sent once (dedupe key).
+- **In-app notifications** for all three portals. Files are stored privately and served only through `/files/<id>` after a permission check.
+- Database changes: `supabase/migrations/0004_release2.sql` (same content as `supabase/release2.sql`, safe to run repeatedly).
+- Tests: `npm run test:security` (43 database permission/workflow tests), `node scripts/e2e-release2.mjs` (browser walkthrough + screenshots).
+
+### Upgrading the live Supabase database to Release 2
+1. Supabase → SQL Editor → New query → paste all of `supabase/release2.sql` → Run.
+2. Deploy the code. Open `/status`: "Release 2 update" and "Daily reminders" should both be ✅.
 
 ## Tech
 Next.js 15 (App Router) · PostgreSQL 16 (Supabase-compatible) · Tailwind CSS 4

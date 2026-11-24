@@ -7,6 +7,12 @@ import { Badge, Empty, HealthDot, HEALTH_LABEL, HEALTH_TONE, PageHeader, PRIORIT
 
 export const metadata = { title: "Dashboard" };
 
+function actionHref(a: { kind: string; project_id: string; record_id: string | null }) {
+  if (a.kind === "approval" && a.record_id) return `/m/approvals/${a.record_id}`;
+  if (a.kind === "payment") return `/m/projects/${a.project_id}/payments`;
+  return `/m/projects/${a.project_id}`;
+}
+
 const KIND_LABEL: Record<string, string> = { task: "Task", approval: "Approval", payment: "Payment", snag: "Snag", project: "Project" };
 
 export default async function ManagementDashboard() {
@@ -30,9 +36,9 @@ export default async function ManagementDashboard() {
         <Stat label="On schedule" value={o.on_schedule} tone="green" href="/m/projects?health=green" />
         <Stat label="At risk" value={o.at_risk} tone={o.at_risk ? "amber" : undefined} href="/m/projects?health=amber" />
         <Stat label="Delayed" value={o.delayed} tone={o.delayed ? "red" : undefined} href="/m/projects?health=red" />
-        <Stat label="Pending client approvals" value={o.pending_approvals} tone={o.pending_approvals ? "amber" : undefined} />
-        <Stat label="Overdue payments" value={o.overdue_payments} tone={o.overdue_payments ? "red" : undefined} hint={o.overdue_payments ? `${inr(o.overdue_amount)} outstanding` : undefined} />
-        <Stat label="Upcoming payments (30 days)" value={o.upcoming_payments} hint={o.upcoming_payments ? inr(o.upcoming_amount) : undefined} />
+        <Stat label="Pending client approvals" value={o.pending_approvals} tone={o.pending_approvals ? "amber" : undefined} href="/m/approvals?status=pending" />
+        <Stat label="Overdue payments" href="/m/payments" value={o.overdue_payments} tone={o.overdue_payments ? "red" : undefined} hint={o.overdue_payments ? `${inr(o.overdue_amount)} outstanding` : undefined} />
+        <Stat href="/m/payments" label="Upcoming payments (30 days)" value={o.upcoming_payments} hint={o.upcoming_payments ? inr(o.upcoming_amount) : undefined} />
         <Stat label="Open snags" value={o.open_snags} tone={o.open_snags ? "amber" : undefined} />
         <Stat label="Overdue tasks" value={o.overdue_tasks} tone={o.overdue_tasks ? "red" : undefined} />
         <Stat label="Tasks due today" value={o.tasks_today} />
@@ -60,7 +66,7 @@ export default async function ManagementDashboard() {
                     <tr key={i} className="border-b border-line last:border-0 hover:bg-canvas/60">
                       <td className="px-4 py-2.5 align-top"><Badge tone={PRIORITY_TONE[a.priority]}>{PRIORITY_LABEL[a.priority]}</Badge></td>
                       <td className="px-2 py-2.5 align-top">
-                        <Link href={`/m/projects/${a.project_id}`} className="font-medium text-ink hover:underline">{a.title}</Link>
+                        <Link href={actionHref(a)} className="font-medium text-ink hover:underline">{a.title}</Link>
                         <div className="text-xs text-ink-3">{KIND_LABEL[a.kind]} · {a.project_name}</div>
                       </td>
                       <td className="px-2 py-2.5 align-top text-ink-2">{a.assignee ?? "—"}</td>
@@ -80,7 +86,7 @@ export default async function ManagementDashboard() {
               <ul className="divide-y divide-line md:hidden">
                 {actions.map((a, i) => (
                   <li key={i}>
-                    <Link href={`/m/projects/${a.project_id}`} className="block px-4 py-3">
+                    <Link href={actionHref(a)} className="block px-4 py-3">
                       <div className="flex items-center gap-2"><Badge tone={PRIORITY_TONE[a.priority]}>{PRIORITY_LABEL[a.priority]}</Badge><span className="text-xs text-ink-3">{KIND_LABEL[a.kind]}</span></div>
                       <div className="mt-1 text-sm font-medium">{a.title}</div>
                       <div className="text-xs text-ink-3">{a.project_name} · {a.assignee ?? "Unassigned"}{a.due_date ? ` · ${relDay(a.due_date)}` : ""}</div>

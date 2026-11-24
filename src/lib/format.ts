@@ -101,3 +101,51 @@ export const TASK_STATUS_LABEL: Record<string, string> = {
 };
 
 export const PRIORITY_LABEL: Record<string, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+
+// ---------- Release 2: approvals and payments ----------
+export const APPROVAL_STATUS_LABEL: Record<string, string> = {
+  draft: "Draft · not sent",
+  pending: "Waiting for client",
+  approved: "Approved",
+  changes_requested: "Changes requested",
+  query_raised: "Client query",
+  withdrawn: "Withdrawn",
+};
+export const APPROVAL_STATUS_CLIENT: Record<string, string> = {
+  pending: "Awaiting your decision",
+  approved: "Approved",
+  changes_requested: "Being revised by our team",
+  query_raised: "We are answering your query",
+  withdrawn: "Withdrawn",
+};
+export const REVISION_STATUS_LABEL: Record<string, string> = {
+  draft: "Draft",
+  published: "Sent to client",
+  approved: "Approved",
+  changes_requested: "Changes requested",
+  query_raised: "Client query",
+  superseded: "Replaced by a newer revision",
+};
+export const RESPONSE_LABEL: Record<string, string> = {
+  approve: "Approved",
+  request_changes: "Requested changes",
+  raise_query: "Raised a query",
+};
+export const PAYMENT_STATUS_LABEL: Record<string, string> = {
+  upcoming: "Upcoming",
+  due: "Due",
+  partially_paid: "Partially paid",
+  paid: "Paid",
+  overdue: "Overdue",
+  on_hold: "On hold",
+};
+export const AREAS = ["Living room", "Dining", "Kitchen", "Master bedroom", "Bedroom 2", "Bedroom 3", "Kids room", "Guest room", "Pooja room", "Study", "Foyer", "Balcony", "Bathroom", "Utility", "Whole home"];
+export const APPROVAL_CATEGORIES = ["Design", "Carpentry", "Laminate", "Veneer", "Hardware", "Countertop", "Tiles", "Wall finish", "Paint", "Lighting", "Electrical", "Plumbing fixtures", "False ceiling", "Furniture", "Curtains & furnishing", "Appliances", "Other"];
+export const PAYMENT_METHODS = ["Bank transfer (NEFT/RTGS/IMPS)", "UPI", "Cheque", "Cash", "Card", "Other"];
+
+/** "1,50,000" or "150000.50" typed by a person -> paise. Returns NaN if invalid. */
+export function rupeesToPaise(v: FormDataEntryValue | null | undefined): number {
+  const s = String(v ?? "").replace(/[,₹\s]/g, "");
+  if (!/^-?\d+(\.\d{1,2})?$/.test(s)) return NaN;
+  return Math.round(Number(s) * 100);
+}
