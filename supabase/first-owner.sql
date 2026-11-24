@@ -7,9 +7,9 @@
 -- =====================================================================
 do $$
 declare
-  v_owner_name  text := 'Ameya';                       -- CHANGE ME: your name
+  v_owner_name  text := 'ameya';                       -- CHANGE ME: your name
   v_email       text := 'merakiinterior01@gmail.com';             -- CHANGE ME: your login email
-  v_password    text := 'Rahul@123$';  -- CHANGE ME: at least 8 characters
+  v_password    text := 'Rahul@1234$';  -- CHANGE ME: at least 8 characters
   v_phone       text := '+919028885152 ';                        -- CHANGE ME: your mobile number
   v_org uuid; v_user uuid;
 begin
