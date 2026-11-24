@@ -11,13 +11,32 @@ types.setTypeParser(1700, (v) => Number(v));
 const globalForPg = globalThis as unknown as { __mgPool?: Pool };
 
 /**
+ * Reads DATABASE_URL forgivingly: trims spaces/quotes and safely encodes a
+ * password containing symbols like @ # / ? (a very common copy-paste issue).
+ */
+export function parseDatabaseUrl(raw: string | undefined): URL {
+  let v = (raw ?? "").trim().replace(/^["']|["']$/g, "");
+  if (!v) throw new Error("DATABASE_URL is not set. Add it in your hosting settings (Environment Variables).");
+  const m = v.match(/^(postgres(?:ql)?:\/\/)([^:/]+):(.*)@([^@]+)$/);
+  if (m) {
+    let pw = m[3].replace(/^\[|\]$/g, "");
+    try { pw = decodeURIComponent(pw); } catch { /* use as typed */ }
+    v = `${m[1]}${m[2]}:${encodeURIComponent(pw)}@${m[4]}`;
+  }
+  try {
+    return new URL(v);
+  } catch {
+    throw new Error("DATABASE_URL is not a valid database address. Copy it again from Supabase → Connect → Transaction pooler.");
+  }
+}
+
+/**
  * Hosted databases (Supabase) need an encrypted connection. If the
  * provider's CA certificate is supplied in DATABASE_SSL_CA it is verified;
  * otherwise the connection is still encrypted but the certificate isn't pinned.
  */
 function connectionConfig() {
-  const raw = process.env.DATABASE_URL ?? "";
-  const url = new URL(raw);
+  const url = parseDatabaseUrl(process.env.DATABASE_URL);
   const local = ["localhost", "127.0.0.1"].includes(url.hostname);
   url.searchParams.delete("sslmode");
   const ca = process.env.DATABASE_SSL_CA?.replace(/\\n/g, "\n");
@@ -27,13 +46,14 @@ function connectionConfig() {
   };
 }
 
-export const pool: Pool =
-  globalForPg.__mgPool ??
-  (globalForPg.__mgPool = new Pool({
+/** Created on first use, so building the app never needs the database. */
+function getPool(): Pool {
+  return (globalForPg.__mgPool ??= new Pool({
     ...connectionConfig(),
     max: Number(process.env.DATABASE_POOL_MAX ?? 5),
     idleTimeoutMillis: 30_000,
   }));
+}
 
 export type Db = PoolClient;
 
@@ -44,7 +64,7 @@ export type Db = PoolClient;
  * one transaction: it all succeeds or nothing is saved.
  */
 export async function withUser<T>(userId: string, fn: (db: Db) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query("begin");
     await client.query("select set_config('request.jwt.claims', $1, true)", [
@@ -68,7 +88,7 @@ export async function withUser<T>(userId: string, fn: (db: Db) => Promise<T>): P
  * `actorId` is recorded in the audit log as the person responsible.
  */
 export async function withService<T>(actorId: string | null, fn: (db: Db) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query("begin");
     if (actorId) {
