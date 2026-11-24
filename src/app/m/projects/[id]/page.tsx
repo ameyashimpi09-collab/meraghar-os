@@ -1,0 +1,181 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { z } from "zod";
+import { requireUser } from "@/lib/auth";
+import { withUser } from "@/lib/db";
+import { projectDetail } from "@/lib/queries";
+import { fmtDate, fmtDateTime, inr, POSSESSION_LABEL, PROJECT_STATUS_LABEL } from "@/lib/format";
+import { MEMBER_ROLE_LABEL, creatableRoles } from "@/lib/roles";
+import { Avatar, Badge, Empty, Field, HEALTH_LABEL, HEALTH_TONE, Section } from "@/components/ui";
+import { removeMemberAction } from "../../actions";
+import { AddMemberForm, EditProjectForm, ResetPasswordButton } from "./ProjectForms";
+
+const STAGE_TONE = { completed: "green", in_progress: "blue", delayed: "red", on_hold: "amber", not_started: "gray", skipped: "gray" } as const;
+const STAGE_LABEL: Record<string, string> = { completed: "Completed", in_progress: "In progress", delayed: "Delayed", on_hold: "On hold", not_started: "Not started", skipped: "Skipped" };
+const ACTION_TEXT: Record<string, string> = { insert: "added", update: "updated", delete: "removed" };
+const ENTITY_TEXT: Record<string, string> = {
+  projects: "project details", project_members: "team member", project_scope_items: "scope item", project_scope_costs: "scope cost",
+  project_stages: "stage", tasks: "task", approvals: "approval", approval_revisions: "approval revision", approval_responses: "client response",
+  payment_milestones: "payment milestone", payment_transactions: "payment", snags: "snag", purchase_requirements: "purchase item",
+};
+
+export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requireUser("management");
+  const { id } = await params;
+  if (!z.string().uuid().safeParse(id).success) notFound();
+
+  const data = await withUser(user.id, async (db) => {
+    const d = await projectDetail(db, id);
+    if (!d) return null;
+    const people = (await db.query("select id, full_name, role from profiles where is_active and deleted_at is null order by full_name")).rows;
+    const audit = (await db.query(
+      `select a.action, a.entity_type, a.created_at, pr.full_name as actor
+         from audit_logs a left join profiles pr on pr.id = a.actor_id
+        where a.project_id = $1 order by a.created_at desc limit 12`, [id])).rows;
+    return { ...d, people, audit };
+  });
+  if (!data) notFound();
+  const { project: p, members, scope, stages, people, audit } = data;
+  const client = members.find((m) => m.member_role === "client");
+  const totalCost = scope.reduce((s, x) => s + (x.estimated_cost_paise ?? 0), 0);
+
+  return (
+    <>
+      <div className="mb-1 text-xs text-ink-3"><Link href="/m/projects" className="hover:underline">Projects</Link> / {p.project_code}</div>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{p.name}</h1>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-ink-3">
+            <Badge tone="brand">{p.project_code}</Badge>
+            <Badge>{PROJECT_STATUS_LABEL[p.status]}</Badge>
+            {p.health && <Badge tone={HEALTH_TONE[p.health]}>{HEALTH_LABEL[p.health]}</Badge>}
+            <span>{[p.flat_number, p.building_society, p.city].filter(Boolean).join(", ")}</span>
+          </div>
+        </div>
+        {p.can_manage && <EditProjectForm p={p} />}
+      </div>
+
+      {p.reasons?.length > 0 && (
+        <div className={`mb-5 rounded-lg border px-4 py-3 text-sm ${p.health === "red" ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <span className="font-medium">Why this project is {HEALTH_LABEL[p.health].toLowerCase()}: </span>{p.reasons.join(" · ")}
+        </div>
+      )}
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+        <div className="space-y-5">
+          <Section title="Project profile">
+            <dl className="grid gap-x-6 gap-y-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label="Address">{p.address_line}</Field>
+              <Field label="Building / society">{p.building_society}</Field>
+              <Field label="Flat / unit">{p.flat_number}</Field>
+              <Field label="City">{[p.city, p.pincode].filter(Boolean).join(" ")}</Field>
+              <Field label="Configuration">{p.property_config}</Field>
+              <Field label="Carpet area">{p.carpet_area_sqft ? `${p.carpet_area_sqft.toLocaleString("en-IN")} sq ft` : null}</Field>
+              <Field label="Possession">{p.possession_status ? POSSESSION_LABEL[p.possession_status] : null}</Field>
+              <Field label="Expected start">{fmtDate(p.expected_start_date)}</Field>
+              <Field label="Target handover">{fmtDate(p.target_handover_date)}</Field>
+              <Field label="Actual handover">{p.actual_handover_date ? fmtDate(p.actual_handover_date) : null}</Field>
+              <Field label="Site update frequency">Every {p.site_update_frequency_days} days</Field>
+              <Field label="Created">{fmtDateTime(p.created_at)}</Field>
+            </dl>
+            {p.description && <p className="border-t border-line px-4 py-3 text-sm text-ink-2">{p.description}</p>}
+          </Section>
+
+          <Section title="Scope of work" action={p.can_manage && totalCost > 0 ? <span className="text-xs text-ink-3">Est. total <span className="font-semibold text-ink">{inr(totalCost)}</span> · management only</span> : null}>
+            {scope.length === 0 ? <div className="p-4"><Empty title="No scope added yet" /></div> : (
+              <table className="w-full text-sm">
+                <tbody>
+                  {scope.map((s) => (
+                    <tr key={s.id} className="border-b border-line last:border-0">
+                      <td className="px-4 py-2.5 align-top">
+                        <div className="font-medium">{s.category}</div>
+                        {s.description && <div className="text-xs text-ink-3">{s.description}</div>}
+                      </td>
+                      <td className="px-2 py-2.5 align-top">{s.is_included ? <Badge tone="green">Included</Badge> : <Badge>Excluded</Badge>}</td>
+                      {p.can_manage && <td className="px-4 py-2.5 text-right align-top tabular-nums text-ink-2">{s.estimated_cost_paise ? inr(s.estimated_cost_paise) : "—"}</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Section>
+
+          <Section title="Execution stages" action={<span className="text-xs text-ink-3">Full scheduling arrives in Release 3</span>}>
+            {stages.length === 0 ? <div className="p-4"><Empty title="No stages yet" /></div> : (
+              <ol className="divide-y divide-line">
+                {stages.map((s) => (
+                  <li key={s.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                    <span className="w-5 text-xs text-ink-3 tabular-nums">{s.sort_order}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium">{s.name}</div>
+                      <div className="text-xs text-ink-3">{fmtDate(s.start_date, { year: false })} → {fmtDate(s.planned_end_date, { year: false })}</div>
+                    </div>
+                    <span className="hidden w-24 sm:block"><span className="block h-1.5 rounded-full bg-canvas"><span className="block h-1.5 rounded-full bg-brand" style={{ width: `${s.completion_pct}%` }} /></span></span>
+                    <Badge tone={STAGE_TONE[s.status as keyof typeof STAGE_TONE]}>{STAGE_LABEL[s.status]}</Badge>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Section>
+        </div>
+
+        <div className="space-y-5">
+          <Section title="Team">
+            <ul className="divide-y divide-line">
+              {members.filter((m) => m.member_role !== "client").map((m) => (
+                <li key={m.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <Avatar name={m.full_name} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{m.full_name}</div>
+                    <div className="text-xs text-ink-3">{MEMBER_ROLE_LABEL[m.member_role]}{m.phone ? ` · ${m.phone}` : ""}</div>
+                  </div>
+                  {p.can_manage && (
+                    <form action={removeMemberAction}>
+                      <input type="hidden" name="member_id" value={m.id} /><input type="hidden" name="project_id" value={p.id} />
+                      <button className="text-xs text-ink-3 hover:text-red-600" title="Remove from project">Remove</button>
+                    </form>
+                  )}
+                </li>
+              ))}
+              {members.filter((m) => m.member_role !== "client").length === 0 && <li className="px-4 py-3 text-sm text-ink-3">Nobody assigned yet.</li>}
+            </ul>
+            {p.can_manage && <AddMemberForm projectId={p.id} people={people} />}
+          </Section>
+
+          <Section title="Client">
+            {client ? (
+              <div className="space-y-3 p-4 text-sm">
+                <div className="flex items-center gap-3">
+                  <Avatar name={client.full_name} size={40} />
+                  <div><div className="font-medium">{client.full_name}</div><div className="text-xs text-ink-3">Client login: {client.email}</div></div>
+                </div>
+                <dl className="grid grid-cols-2 gap-3">
+                  <Field label="Phone">{client.phone}</Field>
+                  <Field label="Prefers">{{ whatsapp: "WhatsApp", phone: "Phone call", email: "Email", in_app: "In the app" }[client.preferred_contact_method as string]}</Field>
+                  {client.secondary_contact_name && <Field label="Secondary contact">{client.secondary_contact_name}{client.secondary_contact_phone ? ` · ${client.secondary_contact_phone}` : ""}</Field>}
+                </dl>
+                {creatableRoles(user.role).includes("client") && <ResetPasswordButton profileId={client.profile_id} />}
+              </div>
+            ) : (
+              <div className="p-4 text-sm text-ink-3">No client linked yet. Use <span className="font-medium">Assign as → Client</span> in the Team box, or create the client under Team &amp; Clients first.</div>
+            )}
+          </Section>
+
+          <Section title="Recent activity">
+            {audit.length === 0 ? <p className="p-4 text-sm text-ink-3">No activity yet.</p> : (
+              <ul className="divide-y divide-line">
+                {audit.map((a, i) => (
+                  <li key={i} className="px-4 py-2 text-xs">
+                    <span className="font-medium text-ink">{a.actor ?? "System"}</span>{" "}
+                    <span className="text-ink-2">{ACTION_TEXT[a.action] ?? a.action} {ENTITY_TEXT[a.entity_type] ?? a.entity_type.replace(/_/g, " ")}</span>
+                    <div className="text-ink-3">{fmtDateTime(a.created_at)}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+        </div>
+      </div>
+    </>
+  );
+}
