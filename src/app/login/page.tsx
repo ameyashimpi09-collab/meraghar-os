@@ -6,7 +6,8 @@ import LoginForm from "./LoginForm";
 export const metadata = { title: "Sign in" };
 
 export default async function LoginPage() {
-  const user = await getCurrentUser();
+  // Never let a stale cookie or a temporary database hiccup hide the sign-in form.
+  const user = await getCurrentUser().catch((e) => { console.error("login page session check failed", e); return null; });
   if (user) redirect(homeFor(user.role));
   return (
     <main className="grid min-h-dvh bg-ivory lg:grid-cols-[1.1fr_1fr]">
