@@ -4,7 +4,7 @@ import { logout } from "@/app/actions/auth";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { CurrentUser } from "@/lib/auth";
 
-export type NavItem = { href: string; label: string; exact?: boolean; icon: React.ReactNode };
+export type NavItem = { href: string; label: string; exact?: boolean; icon: React.ReactNode; badge?: number };
 
 const linkCls = "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-ink-2 hover:bg-canvas hover:text-ink";
 const activeCls = "!bg-brand-soft !text-brand-dark font-medium";
@@ -13,7 +13,8 @@ export function InternalShell({ user, nav, upcoming, children }: { user: Current
   const links = nav.map((n) => (
     <NavLink key={n.href} href={n.href} exact={n.exact} className={linkCls} activeClassName={activeCls}>
       <span className="h-4 w-4 shrink-0">{n.icon}</span>
-      {n.label}
+      <span className="flex-1">{n.label}</span>
+      {n.badge ? <span className="rounded-full bg-brand px-1.5 text-[10px] leading-4 font-semibold text-white">{n.badge > 99 ? "99+" : n.badge}</span> : null}
     </NavLink>
   ));
   return (
@@ -59,7 +60,7 @@ export function InternalShell({ user, nav, upcoming, children }: { user: Current
         </div>
         <details className="group relative">
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-sm">
-            <Avatar name={user.fullName} size={22} /> Menu
+            <Avatar name={user.fullName} size={22} /> Menu{nav.some((n) => n.badge) ? <span className="h-2 w-2 rounded-full bg-brand" /> : null}
           </summary>
           <div className="absolute right-0 mt-2 w-60 rounded-lg border border-line bg-white p-2 shadow-lg">
             <div className="px-2.5 py-2 text-xs text-ink-3">{user.fullName} · {ROLE_LABEL[user.role]}</div>

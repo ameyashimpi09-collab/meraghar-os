@@ -28,6 +28,7 @@ export async function managementOverview(db: Db) {
 export type ActionItem = {
   kind: "task" | "approval" | "payment" | "snag" | "project";
   project_id: string;
+  record_id: string | null;
   project_name: string;
   title: string;
   assignee: string | null;
@@ -43,7 +44,7 @@ export async function priorityActions(db: Db, limit = 25): Promise<ActionItem[]>
     `
     with items as (
       -- Tasks overdue, due today, blocked, or critical
-      select 'task' as kind, t.project_id, t.title, pr.full_name as assignee,
+      select 'task' as kind, t.project_id, t.id as record_id, t.title, pr.full_name as assignee,
              case when t.status = 'blocked' or (t.due_date < today_ist() and t.priority in ('critical','high')) then 'critical'
                   when t.due_date < today_ist() then 'high' else t.priority::text end as priority,
              t.due_date,
@@ -55,7 +56,7 @@ export async function priorityActions(db: Db, limit = 25): Promise<ActionItem[]>
         and (t.due_date <= today_ist() or t.status = 'blocked' or t.priority = 'critical')
       union all
       -- Client approvals overdue or due within 3 days
-      select 'approval', a.project_id, 'Client approval: ' || a.title, 'Client',
+      select 'approval', a.project_id, a.id, 'Client approval: ' || a.title, 'Client',
              case when a.deadline < today_ist() then 'critical' when a.deadline <= today_ist() + 1 then 'high' else 'medium' end,
              a.deadline, 'Awaiting client',
              case when a.deadline < today_ist() then 'Client approval delay · ' || (today_ist() - a.deadline) || ' day(s) past deadline' end
@@ -64,7 +65,7 @@ export async function priorityActions(db: Db, limit = 25): Promise<ActionItem[]>
         and (a.deadline is null or a.deadline <= today_ist() + 3)
       union all
       -- Overdue client payments
-      select 'payment', b.project_id, 'Payment overdue: ' || b.name,
+      select 'payment', b.project_id, b.id, 'Payment overdue: ' || b.name,
              (select pr.full_name from project_members m join profiles pr on pr.id = m.profile_id
                where m.project_id = b.project_id and m.member_role = 'project_manager' and m.removed_at is null limit 1),
              case when b.due_date < today_ist() - 7 then 'critical' else 'high' end,
@@ -72,14 +73,14 @@ export async function priorityActions(db: Db, limit = 25): Promise<ActionItem[]>
       from payment_milestone_balances b where b.effective_status = 'overdue'
       union all
       -- Open snags not yet resolved
-      select 'snag', s.project_id, 'Snag: ' || left(s.description, 70), coalesce(pr.full_name, 'Unassigned'),
+      select 'snag', s.project_id, s.id, 'Snag: ' || left(s.description, 70), coalesce(pr.full_name, 'Unassigned'),
              coalesce(s.urgency::text, 'medium'), null::date, s.status::text,
              case when s.assigned_to is null then 'Needs assignment' end
       from snags s left join profiles pr on pr.id = s.assigned_to
       where s.deleted_at is null and s.status not in ('resolved', 'awaiting_client_confirmation')
       union all
       -- Project set-up gaps and missed handovers
-      select 'project', p.id,
+      select 'project', p.id, null::uuid,
              case when p.target_handover_date < today_ist() and p.actual_handover_date is null then 'Handover date missed'
                   when not exists (select 1 from project_members m where m.project_id = p.id and m.member_role = 'project_manager' and m.removed_at is null) then 'Assign a project manager'
                   else 'Add client login' end,

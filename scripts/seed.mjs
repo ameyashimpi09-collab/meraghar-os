@@ -145,24 +145,33 @@ await as(id.rahul, "authenticated", async () => {
   await task(rohan, "Schedule site measurement visit", id.sanjay, d(14), "medium", "not_started");
   await task(rohan, "Prepare mood board options", id.pooja, d(6), "medium", "not_started");
 
-  // Approvals (Release 2 module, data model already live)
-  const approval = async (pid, title, area, category, item, deadline, desc) => {
-    const [a] = await q(
-      `insert into approvals (project_id, title, area, category, item_name, status, current_revision_no, deadline, created_by)
-       values ($1,$2,$3,$4,$5,'pending',1,$6,$7) returning id`,
-      [pid, title, area, category, item, deadline, id.rahul],
-    );
+  // Approvals go through the same workflow functions as the app
+  const approval = async (pid, title, area, category, item, deadline, rev) => {
+    const [a] = await q("select approval_create($1) as id", [{ project_id: pid, title, area, category, item_name: item, deadline }]);
     await q(
-      `insert into approval_revisions (approval_id, project_id, revision_no, status, client_description, published_at, published_by, created_by)
-       values ($1,$2,1,'published',$3,now(),$4,$4)`,
-      [a.id, pid, desc, id.rahul],
+      `update approval_revisions set client_description = $2, material_brand = $3, material_type = $4, specifications = $5,
+              colour = $6, finish = $7, dimensions = $8, quantity = $9, quantity_unit = $10, commercial_impact_paise = $11
+        where approval_id = $1 and status = 'draft'`,
+      [a.id, rev.desc, rev.brand ?? null, rev.type ?? null, rev.specs ?? null, rev.colour ?? null, rev.finish ?? null,
+       rev.dims ?? null, rev.qty ?? null, rev.unit ?? null, rev.impact ?? null],
     );
+    if (rev.publish !== false) await q("select approval_publish($1)", [a.id]);
     return a.id;
   };
-  await approval(amit, "Kitchen shutter laminate", "Kitchen", "Laminate", "Shutter laminate", d(2), "Merino 1 mm, matte finish, shade 'Frosty White'.");
-  await approval(amit, "Master bedroom wardrobe handles", "Master bedroom", "Hardware", "Wardrobe handles", d(6), "Profile handle in brushed gold, 160 mm.");
-  await approval(kavita, "Living room wallpaper", "Living room", "Wall finish", "Wallpaper", d(-4), "Textured beige wallpaper, accent wall behind sofa.");
-  await approval(kavita, "Pendant light selection", "Dining", "Lighting", "Pendant lights", d(-1), "Set of three matte black dome pendants.");
+  await approval(amit, "Kitchen shutter laminate", "Kitchen", "Laminate", "Shutter laminate", d(2), {
+    desc: "Laminate for all kitchen shutters (base and wall units). Matte finish hides fingerprints and suits the white quartz counter.",
+    brand: "Merino", type: "HPL laminate, 1 mm", specs: "Anti-fingerprint, scratch resistant", colour: "Frosty White (MR 21043)", finish: "Super matte",
+    dims: "Shutter sizes as per kitchen drawing K-02", qty: 18, unit: "sheets" });
+  await approval(amit, "Master bedroom wardrobe handles", "Master bedroom", "Hardware", "Wardrobe handles", d(6), {
+    desc: "Profile handles for the 4-door wardrobe.", brand: "Hettich", type: "Aluminium profile handle", colour: "Brushed gold", finish: "Brushed", dims: "160 mm", qty: 4, unit: "nos" });
+  await approval(amit, "Living room TV unit design", "Living room", "Carpentry", "TV unit", d(10), {
+    desc: "Wall-mounted TV unit with fluted panel and floating drawers.", publish: false });
+  await approval(kavita, "Living room wallpaper", "Living room", "Wall finish", "Wallpaper", d(1), {
+    desc: "Textured beige wallpaper for the accent wall behind the sofa.", brand: "Marshalls", colour: "Sand beige", finish: "Textured", dims: "Wall 3.6 m x 2.9 m", qty: 3, unit: "rolls", impact: 1250000 });
+  await approval(kavita, "Pendant light selection", "Dining", "Lighting", "Pendant lights", d(4), {
+    desc: "Set of three matte black dome pendants above the dining table.", brand: "Philips", colour: "Matte black", qty: 3, unit: "nos" });
+  // Make two of Kavita's approvals overdue (as if sent earlier)
+  await q("update approvals set deadline = $2 where project_id = $1 and title in ('Living room wallpaper', 'Pendant light selection')", [kavita, d(-4)]);
 
   // Payment schedule (Release 2 module)
   const pay = async (pid, name, lakhs, due, order, receivedLakhs) => {

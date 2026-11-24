@@ -4,6 +4,9 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { withUser } from "@/lib/db";
 import { projectDetail, myTasks } from "@/lib/queries";
+import { approvalList } from "@/lib/approvals";
+import { APPROVAL_STATUS_LABEL } from "@/lib/format";
+import { APPROVAL_TONE } from "@/components/approvals";
 import { fmtDate, POSSESSION_LABEL } from "@/lib/format";
 import { MEMBER_ROLE_LABEL } from "@/lib/roles";
 import { Avatar, Badge, Empty, Field, HEALTH_LABEL, HEALTH_TONE, Section } from "@/components/ui";
@@ -16,10 +19,10 @@ export default async function EmployeeProject({ params }: { params: Promise<{ id
   const data = await withUser(user.id, async (db) => {
     const d = await projectDetail(db, id); // returns null if not assigned (database refuses)
     if (!d) return null;
-    return { ...d, tasks: (await myTasks(db)).filter((t) => t.project_id === id) };
+    return { ...d, tasks: (await myTasks(db)).filter((t) => t.project_id === id), approvals: await approvalList(db, { projectId: id }) };
   });
   if (!data) notFound();
-  const { project: p, members, scope, stages, tasks } = data;
+  const { project: p, members, scope, stages, tasks, approvals } = data;
   return (
     <>
       <div className="mb-1 text-xs text-ink-3"><Link href="/e/projects" className="hover:underline">My projects</Link> / {p.project_code}</div>
@@ -32,6 +35,18 @@ export default async function EmployeeProject({ params }: { params: Promise<{ id
         <div className="space-y-5">
           <Section title="My tasks on this project">
             {tasks.length === 0 ? <div className="p-4"><Empty title="No tasks assigned to you here" /></div> : <ul className="divide-y divide-line">{tasks.map((t) => <TaskRow key={t.id} t={t} editable />)}</ul>}
+          </Section>
+          <Section title="Client approvals">
+            {approvals.length === 0 ? <div className="p-4"><Empty title="No approvals yet" /></div> : (
+              <ul className="divide-y divide-line">
+                {approvals.map((a) => (
+                  <li key={a.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                    <div className="min-w-0"><div className="truncate font-medium">{a.title}</div><div className="text-xs text-ink-3">{a.area} · {a.item_name}{a.current_revision_no ? ` · rev ${a.current_revision_no}` : ""}</div></div>
+                    <Badge tone={APPROVAL_TONE[a.status]}>{APPROVAL_STATUS_LABEL[a.status]}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Section>
           <Section title="Scope of work">
             <ul className="divide-y divide-line">

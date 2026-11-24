@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { withUser } from "@/lib/db";
 import { clientHome } from "@/lib/clientQueries";
@@ -103,15 +104,19 @@ export default async function ClientHome() {
           ) : (
             <ul className="divide-y divide-divider border-y border-divider">
               {approvals.map((a) => (
-                <li key={a.id} className="flex items-start justify-between gap-4 py-4">
-                  <div><div className="text-[11px] tracking-[0.2em] text-amber uppercase">Approval</div><div className="mt-1">{a.title}</div><div className="text-sm text-stone">{a.area}</div></div>
-                  <div className={`text-right text-sm whitespace-nowrap ${a.deadline && a.deadline < today ? "text-alert" : "text-stone"}`}>{a.deadline ? <>By {fmtDate(a.deadline, { year: false })}<div className="text-xs">{relDay(a.deadline)}</div></> : null}</div>
+                <li key={a.id}>
+                  <Link href={`/c/approvals/${a.id}`} className="flex items-start justify-between gap-4 py-4 hover:bg-paper/70">
+                    <div><div className="text-[11px] tracking-[0.2em] text-amber uppercase">{a.status === "query_raised" ? "Approval · we are replying" : "Approval needed"}</div><div className="mt-1">{a.title}</div><div className="text-sm text-stone">{a.area}</div></div>
+                    <div className={`text-right text-sm whitespace-nowrap ${a.deadline && a.deadline < today ? "text-alert" : "text-stone"}`}>{a.deadline ? <>By {fmtDate(a.deadline, { year: false })}<div className="text-xs">{relDay(a.deadline)}</div></> : null}</div>
+                  </Link>
                 </li>
               ))}
               {payments.map((m) => (
-                <li key={m.id} className="flex items-start justify-between gap-4 py-4">
-                  <div><div className={`text-[11px] tracking-[0.2em] uppercase ${m.effective_status === "overdue" ? "text-alert" : "text-amber"}`}>Payment {m.effective_status === "overdue" ? "overdue" : "due"}</div><div className="mt-1">{m.name}</div><div className="text-sm text-stone">{inr(m.outstanding_paise)} outstanding</div></div>
-                  <div className={`text-right text-sm whitespace-nowrap ${m.effective_status === "overdue" ? "text-alert" : "text-stone"}`}>{fmtDate(m.due_date, { year: false })}</div>
+                <li key={m.id}>
+                  <Link href="/c/payments" className="flex items-start justify-between gap-4 py-4 hover:bg-paper/70">
+                    <div><div className={`text-[11px] tracking-[0.2em] uppercase ${m.effective_status === "overdue" ? "text-alert" : "text-amber"}`}>Payment {m.effective_status === "overdue" ? "overdue" : "due"}</div><div className="mt-1">{m.name}</div><div className="text-sm text-stone">{inr(m.outstanding_paise)} outstanding</div></div>
+                    <div className={`text-right text-sm whitespace-nowrap ${m.effective_status === "overdue" ? "text-alert" : "text-stone"}`}>{fmtDate(m.due_date, { year: false })}</div>
+                  </Link>
                 </li>
               ))}
               {purchases.map((x) => (
@@ -122,7 +127,7 @@ export default async function ClientHome() {
               ))}
             </ul>
           )}
-          <p className="mt-3 text-xs text-stone">Approving designs, payments and purchase updates directly from here arrive in the next releases.</p>
+          <p className="mt-3 text-xs text-stone">Tap an item to open it. Purchase updates from here arrive in a later release.</p>
         </section>
 
         {/* 4. What is coming next */}
@@ -145,7 +150,7 @@ export default async function ClientHome() {
       <div className="mt-16 grid gap-10 border-t border-divider pt-12 md:grid-cols-2">
         {totals.total > 0 && (
           <section>
-            <div className="text-[11px] tracking-[0.25em] text-stone uppercase">Payments</div>
+            <Link href="/c/payments" className="text-[11px] tracking-[0.25em] text-stone uppercase hover:text-charcoal">Payments →</Link>
             <dl className="mt-5 grid grid-cols-3 gap-4">
               <div><dt className="text-xs text-stone">Project value</dt><dd className="mt-1 font-serif text-2xl">{inr(totals.total)}</dd></div>
               <div><dt className="text-xs text-stone">Paid</dt><dd className="mt-1 font-serif text-2xl text-sage">{inr(totals.paid)}</dd></div>
