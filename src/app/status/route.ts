@@ -1,0 +1,63 @@
+import { parseDatabaseUrl, withService } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Setup self-check at /status. Shows whether each setting works, in plain
+ * words, WITHOUT revealing any secret values. Safe to open in a browser.
+ */
+export async function GET() {
+  const checks: { name: string; ok: boolean; detail: string }[] = [];
+
+  let urlOk = false;
+  try {
+    const u = parseDatabaseUrl(process.env.DATABASE_URL);
+    urlOk = true;
+    const pooler = u.hostname.includes("pooler.supabase.com");
+    checks.push({
+      name: "Database address (DATABASE_URL)",
+      ok: true,
+      detail: pooler ? "Looks right (Supabase pooler)." : "Readable, but it isn't the Supabase pooler address. Use Connect → Transaction pooler in Supabase.",
+    });
+  } catch (e) {
+    checks.push({ name: "Database address (DATABASE_URL)", ok: false, detail: (e as Error).message });
+  }
+
+  const secretLen = (process.env.SESSION_SECRET ?? "").length;
+  checks.push({
+    name: "Login secret (SESSION_SECRET)",
+    ok: secretLen >= 32,
+    detail: secretLen === 0 ? "Missing. Add it in Vercel → Settings → Environment Variables." : secretLen < 32 ? `Too short (${secretLen} characters). It needs at least 32.` : "OK.",
+  });
+
+  if (urlOk) {
+    try {
+      const r = await withService(null, async (db) => {
+        const tables = (await db.query("select to_regclass('public.organisations') is not null as ok")).rows[0].ok;
+        const owners = tables ? (await db.query("select count(*)::int as n from profiles where role = 'owner' and is_active")).rows[0].n : 0;
+        await db.query("set local role authenticated");
+        return { tables, owners };
+      });
+      checks.push({ name: "Connect to database", ok: true, detail: "Connected." });
+      checks.push({ name: "Step 1 (setup.sql)", ok: r.tables, detail: r.tables ? "Tables found." : "Tables not found. Run setup.sql in Supabase SQL Editor." });
+      checks.push({ name: "Step 2 (owner login)", ok: r.owners > 0, detail: r.owners > 0 ? "Owner account found." : "No owner yet. Run first-owner.sql." });
+    } catch (e) {
+      const err = e as { code?: string; message?: string };
+      let hint = "";
+      if (err.code === "28P01" || /password authentication/i.test(err.message ?? "")) hint = " The database password inside DATABASE_URL is wrong. Use the one from Supabase → Project Settings → Database (reset it if unsure).";
+      else if (/ENOTFOUND|EAI_AGAIN/.test(err.message ?? "")) hint = " The server name in DATABASE_URL can't be found. Copy it again from Supabase → Connect → Transaction pooler.";
+      else if (/Tenant or user not found/i.test(err.message ?? "")) hint = " The user name in DATABASE_URL is wrong. It should look like postgres.xxxxxxxx (copy it again from the Transaction pooler box).";
+      checks.push({ name: "Connect to database", ok: false, detail: `${(err.message ?? "Unknown error").slice(0, 200)}.${hint}` });
+    }
+  }
+
+  const allOk = checks.every((c) => c.ok);
+  const rows = checks
+    .map((c) => `<li><b>${c.ok ? "✅" : "❌"} ${c.name}</b><br><span>${c.detail.replace(/</g, "&lt;")}</span></li>`)
+    .join("");
+  const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meraghar OS · Setup check</title>
+<body style="font-family:system-ui;background:#f6f2eb;color:#2b2925;max-width:640px;margin:40px auto;padding:0 16px">
+<h1 style="font-weight:500">Setup check</h1><p>${allOk ? "Everything looks good. <a href='/login'>Go to sign in</a>." : "Something needs fixing. See the ❌ lines below."}</p>
+<ul style="list-style:none;padding:0;line-height:1.5">${rows.replace(/<li>/g, "<li style='margin:14px 0'>")}</ul></body>`;
+  return new Response(html, { status: allOk ? 200 : 500, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}

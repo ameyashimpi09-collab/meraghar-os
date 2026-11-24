@@ -14,7 +14,7 @@ const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 10);
 
 function secret() {
   const s = process.env.SESSION_SECRET;
-  if (!s || s.length < 32) throw new Error("SESSION_SECRET must be set (32+ characters)");
+  if (!s || s.length < 32) throw new Error("SESSION_SECRET must be set (32+ characters). Open /status to check your setup.");
   return new TextEncoder().encode(s);
 }
 
