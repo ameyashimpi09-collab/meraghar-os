@@ -26,3 +26,10 @@ Demo logins (password `Demo@1234`): rahul@meraghar.demo (owner), aditya@ / neha@
 
 ## Moving to Supabase (later)
 Apply `supabase/migrations/*.sql` (not `supabase/local/`), set `DATABASE_URL` to the Supabase connection string and a strong `SESSION_SECRET`. Passwords are bcrypt, the same format as Supabase Auth.
+
+## Supabase setup (production)
+1. Supabase → SQL Editor → paste and run `supabase/setup.sql` (all tables, security rules, audit trail).
+2. Edit the 4 "CHANGE ME" values in `supabase/first-owner.sql`, paste and run it once (organisation, default lists, owner login).
+3. Hosting env vars: `DATABASE_URL` (Supabase pooler connection string), `SESSION_SECRET` (random, 32+ chars). Optional `DATABASE_SSL_CA` to verify the certificate.
+
+`supabase/setup.sql` is generated from `supabase/migrations/*.sql`; regenerate it when migrations change.

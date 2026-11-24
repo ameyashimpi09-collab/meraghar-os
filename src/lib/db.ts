@@ -10,11 +10,28 @@ types.setTypeParser(1700, (v) => Number(v));
 
 const globalForPg = globalThis as unknown as { __mgPool?: Pool };
 
+/**
+ * Hosted databases (Supabase) need an encrypted connection. If the
+ * provider's CA certificate is supplied in DATABASE_SSL_CA it is verified;
+ * otherwise the connection is still encrypted but the certificate isn't pinned.
+ */
+function connectionConfig() {
+  const raw = process.env.DATABASE_URL ?? "";
+  const url = new URL(raw);
+  const local = ["localhost", "127.0.0.1"].includes(url.hostname);
+  url.searchParams.delete("sslmode");
+  const ca = process.env.DATABASE_SSL_CA?.replace(/\\n/g, "\n");
+  return {
+    connectionString: url.toString(),
+    ssl: local ? undefined : ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false },
+  };
+}
+
 export const pool: Pool =
   globalForPg.__mgPool ??
   (globalForPg.__mgPool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    max: 10,
+    ...connectionConfig(),
+    max: Number(process.env.DATABASE_POOL_MAX ?? 5),
     idleTimeoutMillis: 30_000,
   }));
 

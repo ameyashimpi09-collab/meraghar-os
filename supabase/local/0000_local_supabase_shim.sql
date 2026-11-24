@@ -15,7 +15,11 @@ grant usage on schema auth to anon, authenticated, service_role;
 
 create table if not exists auth.users (
   id                  uuid primary key default gen_random_uuid(),
+  instance_id         uuid,
+  aud                 varchar(255),
+  role                varchar(255),
   email               text unique,
+  email_confirmed_at  timestamptz,
   encrypted_password  text,
   raw_user_meta_data  jsonb not null default '{}'::jsonb,
   last_sign_in_at     timestamptz,
@@ -34,3 +38,7 @@ language sql stable as $$
   )::uuid
 $$;
 grant execute on function auth.uid() to anon, authenticated, service_role;
+
+-- Supabase keeps pgcrypto in the "extensions" schema
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;

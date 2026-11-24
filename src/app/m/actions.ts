@@ -30,7 +30,8 @@ async function createAccount(db: Db, actor: { id: string; organisationId: string
   const id = await asService(db, async () => {
     const exists = await db.query("select 1 from auth.users where lower(email) = lower($1)", [p.email]);
     if (exists.rowCount) throw Object.assign(new Error("dup"), { code: "23505", constraint: "email" });
-    const u = await db.query("insert into auth.users (email, encrypted_password) values (lower($1), $2) returning id", [p.email, hash]);
+    const u = await db.query(`insert into auth.users (instance_id, aud, role, email, encrypted_password, email_confirmed_at)
+       values ('00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', lower($1), $2, now()) returning id`, [p.email, hash]);
     await db.query(
       `insert into profiles (id, organisation_id, role, full_name, email, phone, designation,
                              secondary_contact_name, secondary_contact_phone, preferred_contact_method, created_by)

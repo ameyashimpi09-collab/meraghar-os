@@ -120,7 +120,6 @@ declare t text;
 begin
   for t in select tablename from pg_tables where schemaname = 'public' loop
     execute format('alter table %I enable row level security', t);
-    execute format('alter table %I force row level security', t);
   end loop;
 end $$;
 
