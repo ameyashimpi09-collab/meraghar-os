@@ -35,12 +35,15 @@ export async function GET() {
       const r = await withService(null, async (db) => {
         const tables = (await db.query("select to_regclass('public.organisations') is not null as ok")).rows[0].ok;
         const owners = tables ? (await db.query("select count(*)::int as n from profiles where role = 'owner' and is_active")).rows[0].n : 0;
+        const loginFns = (await db.query("select to_regprocedure('public.app_auth_find_login(text)') is not null as ok")).rows[0].ok;
+        if (loginFns) await db.query("select * from app_auth_find_login('status-check@invalid')"); // same path as sign-in
         await db.query("set local role authenticated");
-        return { tables, owners };
+        return { tables, owners, loginFns };
       });
       checks.push({ name: "Connect to database", ok: true, detail: "Connected." });
       checks.push({ name: "Step 1 (setup.sql)", ok: r.tables, detail: r.tables ? "Tables found." : "Tables not found. Run setup.sql in Supabase SQL Editor." });
       checks.push({ name: "Step 2 (owner login)", ok: r.owners > 0, detail: r.owners > 0 ? "Owner account found." : "No owner yet. Run first-owner.sql." });
+      checks.push({ name: "Sign-in functions (step 3)", ok: r.loginFns, detail: r.loginFns ? "Sign-in works." : "Missing. Run supabase/migrations/0003_auth_functions.sql in Supabase SQL Editor." });
     } catch (e) {
       const err = e as { code?: string; message?: string };
       let hint = "";

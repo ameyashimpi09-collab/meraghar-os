@@ -64,7 +64,7 @@ const people = [
 const id = {};
 await as(null, "service_role", async () => {
   for (const [role, name, email, designation, phone] of people) {
-    const [u] = await q("insert into auth.users (email, encrypted_password) values ($1,$2) returning id", [email, PASSWORD]);
+    const [u] = await q("select app_auth_create_user($1,$2) as id", [email, PASSWORD]);
     await q(
       `insert into profiles (id, organisation_id, role, full_name, email, phone, designation, preferred_contact_method)
        values ($1,$2,$3,$4,$5,$6,$7,$8)`,

@@ -48,9 +48,9 @@ export async function changePassword(_: FormState, form: FormData): Promise<Form
   if (next.length < 8) return { error: "New password must be at least 8 characters." };
   if (next !== String(form.get("confirm") ?? "")) return { error: "New passwords do not match." };
   const ok = await withService(me.id, async (db) => {
-    const r = await db.query("select encrypted_password from auth.users where id = $1", [me.id]);
-    if (!r.rows[0] || !(await bcrypt.compare(current, r.rows[0].encrypted_password))) return false;
-    await db.query("update auth.users set encrypted_password = $2, updated_at = now() where id = $1", [me.id, await hashPassword(next)]);
+    const r = await db.query("select app_auth_get_hash($1) as h", [me.id]);
+    if (!r.rows[0]?.h || !(await bcrypt.compare(current, r.rows[0].h))) return false;
+    await db.query("select app_auth_set_password($1, $2)", [me.id, await hashPassword(next)]);
     return true;
   });
   return ok ? { ok: "Password updated." } : { error: "Current password is incorrect." };

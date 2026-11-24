@@ -26,7 +26,7 @@ create table if not exists auth.users (
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
-grant all on auth.users to service_role;
+-- (like Supabase: no direct access to auth.users for app roles)
 
 -- Same definition Supabase uses: reads the signed-in user's id from the
 -- request's JWT claims, which the server sets per transaction.

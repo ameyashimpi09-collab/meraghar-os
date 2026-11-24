@@ -28,10 +28,9 @@ async function createAccount(db: Db, actor: { id: string; organisationId: string
   const password = tempPassword();
   const hash = await hashPassword(password);
   const id = await asService(db, async () => {
-    const exists = await db.query("select 1 from auth.users where lower(email) = lower($1)", [p.email]);
-    if (exists.rowCount) throw Object.assign(new Error("dup"), { code: "23505", constraint: "email" });
-    const u = await db.query(`insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at)
-       values (gen_random_uuid(), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', lower($1), $2, now()) returning id`, [p.email, hash]);
+    const exists = await db.query("select app_auth_email_exists($1) as e", [p.email]);
+    if (exists.rows[0].e) throw Object.assign(new Error("dup"), { code: "23505", constraint: "email" });
+    const u = await db.query("select app_auth_create_user($1, $2) as id", [p.email, hash]);
     await db.query(
       `insert into profiles (id, organisation_id, role, full_name, email, phone, designation,
                              secondary_contact_name, secondary_contact_phone, preferred_contact_method, created_by)
@@ -211,7 +210,7 @@ export async function resetPasswordAction(_: ActionState, form: FormData): Promi
       if (!target || !creatableRoles(me.role).includes(target.role)) return { error: "You can't reset this person's password." };
       const pw = tempPassword();
       const hash = await hashPassword(pw);
-      await asService(db, () => db.query("update auth.users set encrypted_password = $2, updated_at = now() where id = $1", [id.data, hash]));
+      await asService(db, () => db.query("select app_auth_set_password($1, $2)", [id.data, hash]));
       return { ok: "New temporary password created.", tempPassword: pw, email: target.email };
     });
   } catch (e) {

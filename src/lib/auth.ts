@@ -35,19 +35,14 @@ export type CurrentUser = {
  */
 export async function verifyLogin(email: string, password: string): Promise<{ id: string } | null> {
   const row = await withService(null, async (db) => {
-    const r = await db.query(
-      `select u.id, u.encrypted_password, p.is_active, p.deleted_at
-         from auth.users u join public.profiles p on p.id = u.id
-        where lower(u.email) = lower($1)`,
-      [email.trim()],
-    );
-    return r.rows[0];
+    const r = await db.query("select * from app_auth_find_login($1)", [email.trim()]);
+    return r.rows[0] as { id: string; password_hash: string; is_active: boolean; deleted: boolean } | undefined;
   });
   // Always run a bcrypt compare so response time doesn't reveal whether the email exists
-  const hash = row?.encrypted_password ?? DUMMY_HASH;
+  const hash = row?.password_hash ?? DUMMY_HASH;
   const ok = await bcrypt.compare(password, hash);
-  if (!row || !ok || !row.is_active || row.deleted_at) return null;
-  await withService(row.id, (db) => db.query("update auth.users set last_sign_in_at = now() where id = $1", [row.id]));
+  if (!row || !ok || !row.is_active || row.deleted) return null;
+  await withService(row.id, (db) => db.query("select app_auth_touch_login($1)", [row.id]));
   return { id: row.id };
 }
 
