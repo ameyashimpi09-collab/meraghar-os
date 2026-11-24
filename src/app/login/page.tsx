@@ -4,6 +4,7 @@ import { homeFor } from "@/lib/roles";
 import LoginForm from "./LoginForm";
 
 export const metadata = { title: "Sign in" };
+export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
   // Never let a stale cookie or a temporary database hiccup hide the sign-in form.
