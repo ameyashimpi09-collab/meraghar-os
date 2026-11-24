@@ -1,4 +1,5 @@
 import { parseDatabaseUrl, withService } from "@/lib/db";
+import { ensureMigrations, ensureReminderJob } from "@/lib/migrate";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,15 @@ export async function GET() {
   });
 
   if (urlOk) {
+    const mig = await ensureMigrations();
+    if (!mig.error) await ensureReminderJob();
+    checks.push({
+      name: "Automatic database updates",
+      ok: !mig.error && mig.pending.length === 0,
+      detail: mig.error
+        ? `Could not update the database: ${mig.error.slice(0, 240)}`
+        : mig.applied.length ? `Just applied: ${mig.applied.join(", ")}.` : "Database is up to date.",
+    });
     try {
       const r = await withService(null, async (db) => {
         const tables = (await db.query("select to_regclass('public.organisations') is not null as ok")).rows[0].ok;
@@ -51,7 +61,7 @@ export async function GET() {
       checks.push({
         name: "Release 2 update (release2.sql)",
         ok: r.r2,
-        detail: r.r2 ? "Approvals, payments and reminders are set up." : "Not run yet. Paste supabase/release2.sql into Supabase → SQL Editor and press Run.",
+        detail: r.r2 ? "Approvals, payments and reminders are set up." : "Not applied yet. It is applied automatically; reload this page in a minute.",
       });
       if (r.r2 && r.reminders) {
         const rm = r.reminders;
@@ -60,9 +70,9 @@ export async function GET() {
           name: "Daily reminders (8:00 AM)",
           ok: rm.cron_installed && rm.job_scheduled,
           detail: !rm.cron_installed
-            ? "Supabase Cron is switched off. In Supabase open Integrations → Cron → Enable, then run release2.sql again."
+            ? "Supabase Cron is switched off. In Supabase open Integrations → Cron → Enable, then reload this page."
             : !rm.job_scheduled
-              ? "Cron is on but the reminder job is missing. Run release2.sql again in the SQL Editor."
+              ? "Cron is on but the reminder job is missing. Reload this page; if it stays red, contact support."
               : `Scheduled every day at 8:00 AM India time.${last ? ` Last run ${last}, ${rm.last_count ?? 0} reminder(s) sent.` : " It has not run yet."}`,
         });
       }

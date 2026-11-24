@@ -9,5 +9,5 @@ for f in supabase/local/*.sql supabase/migrations/*.sql; do
   echo "applying $f"
   run "$PSQL -d meraghar -f $PWD/$f"
 done
-run "$PSQL -d meraghar -c 'grant anon, authenticated, service_role to meraghar_app' -c 'grant usage on schema auth to meraghar_app'"
+run "$PSQL -d meraghar -c 'grant create on schema public to meraghar_app' -c 'grant anon, authenticated, service_role to meraghar_app' -c 'grant usage on schema auth to meraghar_app'"
 node scripts/seed.mjs

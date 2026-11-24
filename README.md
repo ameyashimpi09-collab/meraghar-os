@@ -17,9 +17,8 @@ Interior project operating system for Meraki Interior E-Solutions LLP.
 - Database changes: `supabase/migrations/0004_release2.sql` (same content as `supabase/release2.sql`, safe to run repeatedly).
 - Tests: `npm run test:security` (43 database permission/workflow tests), `node scripts/e2e-release2.mjs` (browser walkthrough + screenshots).
 
-### Upgrading the live Supabase database to Release 2
-1. Supabase → SQL Editor → New query → paste all of `supabase/release2.sql` → Run.
-2. Deploy the code. Open `/status`: "Release 2 update" and "Daily reminders" should both be ✅.
+### Database updates are automatic
+The app updates its own database when a new version starts (`src/instrumentation.ts` → `src/lib/migrate.ts`). Every file in `supabase/migrations` is bundled at build time (`scripts/gen-migrations.mjs`, runs as `prebuild`), applied once inside a transaction under an advisory lock, and recorded in `app_migrations`. Databases set up by hand are recognised and not re-run. `/status` shows the result and re-checks the daily reminder job. Nobody needs to paste SQL into Supabase any more. Set `SKIP_DB_MIGRATIONS=1` to turn this off (e.g. locally, where `db-reset.sh` applies migrations).
 
 ## Tech
 Next.js 15 (App Router) · PostgreSQL 16 (Supabase-compatible) · Tailwind CSS 4
