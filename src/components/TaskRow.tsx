@@ -1,35 +1,48 @@
 import Link from "next/link";
-import { fmtDate, relDay, PRIORITY_LABEL, TASK_STATUS_LABEL } from "@/lib/format";
+import { fmtDate, relDay, PRIORITY_LABEL, TASK_STATUS_LABEL, todayIST } from "@/lib/format";
 import { Badge, PRIORITY_TONE } from "./ui";
-import { updateTaskStatus } from "@/app/e/actions";
+import { quickStatusAction } from "@/app/actions/tasks";
 import AutoSubmitSelect from "./AutoSubmitSelect";
+import { TASK_TONE, WaitingOn } from "./execution";
+
+const QUICK = Object.entries(TASK_STATUS_LABEL).filter(([k]) => !["blocked", "cancelled"].includes(k)) as [string, string][];
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function TaskRow({ t, editable = false }: { t: any; editable?: boolean }) {
-  const overdue = t.due_date && relDay(t.due_date).includes("overdue") && !["completed", "cancelled"].includes(t.status);
+export function TaskRow({ t, editable = false, base = "/e", showProject = true, showAssignee = false }: {
+  t: any; editable?: boolean; base?: "/e" | "/m"; showProject?: boolean; showAssignee?: boolean;
+}) {
+  const open = !["completed", "cancelled"].includes(t.status);
+  const overdue = open && t.due_date && t.due_date < todayIST();
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <div className={`text-sm font-medium ${t.status === "completed" ? "text-ink-3 line-through" : ""}`}>{t.title}</div>
+      <div className="min-w-0 flex-1 basis-60">
+        <Link href={`${base}/tasks/${t.id}`} className={`text-sm font-medium hover:underline ${t.status === "completed" || t.status === "cancelled" ? "text-ink-3 line-through" : ""}`}>{t.title}</Link>
         <div className="text-xs text-ink-3">
-          <Link href={`/e/projects/${t.project_id}`} className="hover:underline">{t.project_name}</Link>
-          {t.stage_name ? ` · ${t.stage_name}` : ""}
-          {t.blocked_reason && t.status === "blocked" ? <span className="text-red-600"> · {t.blocked_reason}</span> : null}
-          {t.waiting_on_client ? <span className="text-amber-700"> · Waiting on client approval</span> : null}
+          {[
+            showProject && t.project_name,
+            t.stage_name,
+            showAssignee && (t.assignee_name ?? <span key="u" className="text-amber-700">Unassigned</span>),
+            t.comment_count > 0 && `${t.comment_count} comment${t.comment_count > 1 ? "s" : ""}`,
+            t.file_count > 0 && `${t.file_count} file${t.file_count > 1 ? "s" : ""}`,
+          ].filter(Boolean).map((x, i) => <span key={i}>{i > 0 && " · "}{x}</span>)}
         </div>
+        {t.status === "blocked" && t.blocked_reason && <div className="mt-0.5 text-xs text-red-700">Blocked: {t.blocked_reason}</div>}
+        {open && <WaitingOn items={t.waiting_on} />}
       </div>
       <Badge tone={PRIORITY_TONE[t.priority]}>{PRIORITY_LABEL[t.priority]}</Badge>
-      <div className={`w-28 text-xs ${overdue ? "font-medium text-red-600" : "text-ink-2"}`}>
-        {fmtDate(t.due_date, { year: false })}{t.due_date && t.status !== "completed" ? <div className="font-normal text-[11px]">{relDay(t.due_date)}</div> : null}
+      <div className={`w-24 text-xs ${overdue ? "font-medium text-red-600" : "text-ink-2"}`}>
+        {t.due_date ? fmtDate(t.due_date, { year: false }) : <span className="text-ink-3">No deadline</span>}
+        {t.due_date && open ? <div className="text-[11px] font-normal">{relDay(t.due_date)}</div> : null}
       </div>
-      {editable ? (
-        <form action={updateTaskStatus}>
-          <input type="hidden" name="task_id" value={t.id} />
-          <AutoSubmitSelect name="status" defaultValue={t.status} options={Object.entries(TASK_STATUS_LABEL).filter(([k]) => k !== "cancelled")} />
-        </form>
-      ) : (
-        <Badge>{TASK_STATUS_LABEL[t.status]}</Badge>
-      )}
+      <div className="w-36 text-right">
+        {t.awaiting_review ? <Badge tone="blue">Awaiting review</Badge>
+          : editable && open && t.status !== "blocked" ? (
+            <form action={quickStatusAction}>
+              <input type="hidden" name="id" value={t.id} />
+              <AutoSubmitSelect name="status" defaultValue={t.status} options={QUICK} />
+            </form>
+          ) : <Badge tone={TASK_TONE[t.status]}>{TASK_STATUS_LABEL[t.status]}</Badge>}
+      </div>
     </li>
   );
 }

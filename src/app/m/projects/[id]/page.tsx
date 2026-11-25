@@ -11,6 +11,8 @@ import { MEMBER_ROLE_LABEL, creatableRoles } from "@/lib/roles";
 import { Avatar, Badge, Empty, Field, HEALTH_LABEL, HEALTH_TONE, Section } from "@/components/ui";
 import { removeMemberAction } from "../../actions";
 import { AddMemberForm, EditProjectForm, ResetPasswordButton } from "./ProjectForms";
+import { taskList } from "@/lib/execution";
+import { TaskRow } from "@/components/TaskRow";
 
 const STAGE_TONE = { completed: "green", in_progress: "blue", delayed: "red", on_hold: "amber", not_started: "gray", skipped: "gray" } as const;
 const STAGE_LABEL: Record<string, string> = { completed: "Completed", in_progress: "In progress", delayed: "Delayed", on_hold: "On hold", not_started: "Not started", skipped: "Skipped" };
@@ -19,7 +21,8 @@ const ENTITY_TEXT: Record<string, string> = {
   projects: "project details", project_members: "team member", project_scope_items: "scope item", project_scope_costs: "scope cost",
   project_stages: "stage", tasks: "task", approvals: "approval", approval_revisions: "approval revision", approval_responses: "client response",
   payment_milestones: "payment milestone", payment_transactions: "payment", payment_due_date_changes: "payment due date", snags: "snag", purchase_requirements: "purchase item",
-  approval_messages: "reply to client", internal_notes: "internal note",
+  approval_messages: "reply to client", internal_notes: "internal note", blockers: "blocker", stage_dependencies: "stage dependency",
+  task_dependencies: "task dependency", schedule_changes: "schedule change",
 };
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,10 +43,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       ? (await db.query(`select id, name, amount_paise, received_paise, outstanding_paise, due_date, effective_status
                            from payment_milestone_balances where project_id = $1 order by sort_order, due_date nulls last`, [id])).rows
       : [];
-    return { ...d, people, audit, approvals, payments };
+    const openTasks = await taskList(db, { projectId: id, view: "open" });
+    return { ...d, people, audit, approvals, payments, openTasks };
   });
   if (!data) notFound();
-  const { project: p, members, scope, stages, people, audit, approvals, payments } = data;
+  const { project: p, members, scope, stages, people, audit, approvals, payments, openTasks } = data;
   const today = todayIST();
   const payTotal = payments.reduce((s, m) => s + m.amount_paise, 0);
   const payReceived = payments.reduce((s, m) => s + m.received_paise, 0);
@@ -155,22 +159,31 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             </Section>
           )}
 
-          <Section title="Execution stages" action={<span className="text-xs text-ink-3">Full scheduling arrives in Release 3</span>}>
-            {stages.length === 0 ? <div className="p-4"><Empty title="No stages yet" /></div> : (
+          <Section title="Execution schedule" action={<Link href={`/m/projects/${p.id}/schedule`} className="text-xs text-brand hover:underline">{stages.length ? "Open schedule" : "Set up schedule"} →</Link>}>
+            {stages.length === 0 ? <div className="p-4"><Empty title="No stages yet">Set up the default stages in one step, then adjust dates.</Empty></div> : (
               <ol className="divide-y divide-line">
                 {stages.map((s) => (
-                  <li key={s.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                    <span className="w-5 text-xs text-ink-3 tabular-nums">{s.sort_order}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium">{s.name}</div>
-                      <div className="text-xs text-ink-3">{fmtDate(s.start_date, { year: false })} → {fmtDate(s.planned_end_date, { year: false })}</div>
-                    </div>
-                    <span className="hidden w-24 sm:block"><span className="block h-1.5 rounded-full bg-canvas"><span className="block h-1.5 rounded-full bg-brand" style={{ width: `${s.completion_pct}%` }} /></span></span>
-                    <Badge tone={STAGE_TONE[s.status as keyof typeof STAGE_TONE]}>{STAGE_LABEL[s.status]}</Badge>
+                  <li key={s.id}>
+                    <Link href={`/m/projects/${p.id}/schedule#stage-${s.id}`} className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-canvas/60">
+                      <span className="w-5 text-xs text-ink-3 tabular-nums">{s.sort_order}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium">{s.name}</div>
+                        <div className={`text-xs ${!["completed", "skipped"].includes(s.status) && s.planned_end_date && s.planned_end_date < today ? "text-red-600" : "text-ink-3"}`}>{fmtDate(s.start_date, { year: false })} → {fmtDate(s.planned_end_date, { year: false })}</div>
+                      </div>
+                      <span className="hidden w-24 sm:block"><span className="block h-1.5 rounded-full bg-canvas"><span className="block h-1.5 rounded-full bg-brand" style={{ width: `${s.completion_pct}%` }} /></span></span>
+                      <Badge tone={STAGE_TONE[s.status as keyof typeof STAGE_TONE]}>{STAGE_LABEL[s.status]}</Badge>
+                    </Link>
                   </li>
                 ))}
               </ol>
             )}
+          </Section>
+
+          <Section title={`Tasks (${openTasks.length} open)`} action={p.can_manage ? <Link href={`/m/tasks/new?project=${p.id}`} className="btn-brand px-3 py-1 text-xs">+ New task</Link> : null}>
+            {openTasks.length === 0 ? <div className="p-4"><Empty title="No open tasks" /></div> : (
+              <ul className="divide-y divide-line">{openTasks.slice(0, 8).map((t) => <TaskRow key={t.id} t={t} base="/m" showProject={false} showAssignee />)}</ul>
+            )}
+            {openTasks.length > 8 && <Link href={`/m/tasks?project=${p.id}`} className="block border-t border-line px-4 py-2.5 text-xs text-brand hover:underline">All {openTasks.length} open tasks →</Link>}
           </Section>
         </div>
 

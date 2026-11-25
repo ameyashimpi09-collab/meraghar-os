@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { withUser } from "@/lib/db";
-import { myProjects, myTasks } from "@/lib/queries";
+import { myProjects } from "@/lib/queries";
+import { taskList } from "@/lib/execution";
 import { fmtDate, greeting, todayIST } from "@/lib/format";
 import { MEMBER_ROLE_LABEL } from "@/lib/roles";
 import { Empty, HealthDot, PageHeader, Section, Stat } from "@/components/ui";
@@ -11,14 +12,14 @@ export const metadata = { title: "My dashboard" };
 
 export default async function EmployeeDashboard() {
   const user = await requireUser("employee");
-  const { tasks, projects } = await withUser(user.id, async (db) => ({ tasks: await myTasks(db), projects: await myProjects(db) }));
+  const { tasks, projects } = await withUser(user.id, async (db) => ({ tasks: await taskList(db, { mine: true, view: "all" }), projects: await myProjects(db) }));
   const today = todayIST();
   const open = tasks.filter((t) => !["completed", "cancelled"].includes(t.status));
   const overdue = open.filter((t) => t.due_date && t.due_date < today);
   const dueToday = open.filter((t) => t.due_date === today);
   const upcoming = open.filter((t) => !t.due_date || t.due_date > today);
   const critical = open.filter((t) => t.priority === "critical");
-  const blocked = open.filter((t) => t.status === "blocked" || t.status === "waiting_client" || t.status === "waiting_vendor");
+  const blocked = open.filter((t) => t.status === "blocked" || t.status === "waiting_client" || t.status === "waiting_vendor" || t.waiting_on?.length);
   const done = tasks.filter((t) => t.status === "completed");
 
   return (
@@ -29,7 +30,7 @@ export default async function EmployeeDashboard() {
         <Stat label="Overdue" value={overdue.length} tone={overdue.length ? "red" : undefined} />
         <Stat label="Upcoming" value={upcoming.length} />
         <Stat label="Critical" value={critical.length} tone={critical.length ? "red" : undefined} />
-        <Stat label="Blocked / waiting" value={blocked.length} tone={blocked.length ? "amber" : undefined} />
+        <Stat label="Blocked / waiting" value={blocked.length} tone={blocked.length ? "amber" : undefined} href="/e/blockers" />
         <Stat label="Completed" value={done.length} tone="green" />
       </div>
 
