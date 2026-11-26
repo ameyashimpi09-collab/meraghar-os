@@ -476,6 +476,60 @@ await test("Task photos are visible to the team only", () => as("ganesh", async 
   eq((await q("select id from stored_files where id = $1", [f.id])).length, 1, "manager");
 }));
 
+console.log("\nQuotations");
+const newQuote = async (q, project, total = 50000000) => {
+  const [r] = await q("insert into project_quotations (project_id, created_by, grand_total_paise) values ($1, auth.uid(), $2) returning id", [project, total]);
+  await q("insert into project_quotation_items (quotation_id, project_id, description, amount_paise) values ($1, $2, 'Wardrobe', $3)", [r.id, project, total]);
+  return r.id;
+};
+await test("Project manager can add and confirm a quotation for their project", () => as("aditya", async (q) => {
+  const id = await newQuote(q, projects.amit);
+  await q("select quotation_confirm($1)", [id]);
+  eq((await q("select status from project_quotations where id = $1", [id]))[0].status, "confirmed");
+}));
+await test("Quotations are hidden from clients, designers and other managers", () => as("aditya", async (q) => {
+  const id = await newQuote(q, projects.amit);
+  await q("select quotation_confirm($1)", [id]);
+  for (const who of ["amit", "pooja", "ganesh", "neha"]) {
+    await become(q, who);
+    eq((await q("select id from project_quotations where id = $1", [id])).length, 0, who);
+    eq((await q("select id from project_quotation_items where quotation_id = $1", [id])).length, 0, who + " items");
+  }
+}));
+await test("A manager of another project cannot add or confirm a quotation", () => as("neha", async (q) => {
+  await denied(newQuote(q, projects.amit));
+}));
+await test("A confirmed quotation and its lines cannot be edited or deleted", () => as("aditya", async (q) => {
+  const id = await newQuote(q, projects.amit);
+  await q("select quotation_confirm($1)", [id]);
+  await denied(q("update project_quotations set grand_total_paise = 1 where id = $1", [id]).then(() => q("select 1 from project_quotations where id = $1 and grand_total_paise = 1", [id])).then((r) => { if (!r.length) throw new Error("unchanged"); }));
+  await denied(q("update project_quotation_items set amount_paise = 1 where quotation_id = $1", [id]));
+  await denied(q("insert into project_quotation_items (quotation_id, project_id, description, amount_paise) values ($1, $2, 'Extra', 100)", [id, projects.amit]));
+  await q("delete from project_quotations where id = $1", [id]);
+  eq((await q("select id from project_quotations where id = $1", [id])).length, 1, "still there");
+}));
+await test("Confirming a revised quotation keeps the old one as history", () => as("rahul", async (q) => {
+  const a = await newQuote(q, projects.kavita);
+  await q("select quotation_confirm($1)", [a]);
+  const b = await newQuote(q, projects.kavita, 60000000);
+  await q("select quotation_confirm($1)", [b]);
+  const st = async (id) => (await q("select status from project_quotations where id = $1", [id]))[0].status;
+  eq(`${await st(a)},${await st(b)}`, "replaced,confirmed");
+}));
+await test("Quotation PDF is visible to the project's managers only", () => as("aditya", async (q) => {
+  const id = await newQuote(q, projects.amit);
+  const [f] = await q("insert into stored_files (project_id, entity_type, entity_id, file_name, mime_type, size_bytes, data, uploaded_by) values ($1, 'quotation', $2, 'q.pdf', 'application/pdf', 3, '\\x010203', auth.uid()) returning id", [projects.amit, id]);
+  for (const who of ["amit", "pooja", "neha"]) {
+    await become(q, who);
+    eq((await q("select id from stored_files where id = $1", [f.id])).length, 0, who);
+  }
+  await become(q, "rahul");
+  eq((await q("select id from stored_files where id = $1", [f.id])).length, 1, "owner");
+}));
+await test("Clients cannot upload a quotation file", () => as("amit", async (q) => {
+  await denied(q("insert into stored_files (project_id, entity_type, entity_id, file_name, mime_type, size_bytes, data, uploaded_by) values ($1, 'quotation', gen_random_uuid(), 'q.pdf', 'application/pdf', 3, '\\x010203', auth.uid())", [projects.amit]));
+}));
+
 console.log("\nGeneral");
 await test("Signed-out visitors can read nothing", () => as(null, async (q) => {
   await denied(q("select * from projects"));

@@ -1,4 +1,4 @@
-# Meraghar OS — Release 3 (Execution control)
+# Meraghar OS — Release 3 (Execution control) + Quotation reader
 
 Interior project operating system for Meraki Interior E-Solutions LLP.
 
@@ -26,6 +26,16 @@ Interior project operating system for Meraki Interior E-Solutions LLP.
 - **Reminders and notifications**: task due tomorrow / today / overdue (managers told on day 1 overdue), stage overdue, task assigned / rescheduled / completed / ready. The client gets one "timeline updated" note per change (never internal reasons) and a note when a milestone completes.
 - Database changes: `supabase/migrations/0005_release3.sql` (applied automatically at app start).
 - Tests: `npm run test:security` (61 tests), `node scripts/e2e-release3.mjs` (browser walkthrough + screenshots).
+
+## Quotation reader (PDF → project)
+- On a project, management uploads the quotation PDF (**Project → Quotation**). Claude (`claude-opus-5-5`, via the Anthropic API with structured output) reads every line item (room/area, item, qty, unit, rate, amount), subtotal, discount, GST and grand total.
+- Nothing is saved to the project until management checks it: the review screen flags lines where qty × rate ≠ amount and totals that don't add up, every field can be corrected, lines added or removed.
+- **Confirm** makes it the project's quotation value (shown on the project and payments pages, compared with the payment schedule). A confirmed quotation is locked in the database; a revised PDF replaces it and the old one is kept as history.
+- If the project has no payment schedule yet, it can be created from the quotation by percentages in one step.
+- Management only (project's PM, owner, admin): clients and employees can't see quotations or their PDFs (row security).
+- Needs the hosting env var `ANTHROPIC_API_KEY`. Without it the PDF can still be uploaded and the lines typed in by hand; `/status` shows whether reading is switched on.
+- Database changes: `supabase/migrations/0006_quotations.sql` (applied automatically at app start).
+- Tests: `npm run test:security` (68 tests), `node scripts/e2e-quotation.mjs` with the stand-in API `scripts/mock-claude.mjs` (see the file header).
 
 ### Database updates are automatic
 The app updates its own database when a new version starts (`src/instrumentation.ts` → `src/lib/migrate.ts`). Every file in `supabase/migrations` is bundled at build time (`scripts/gen-migrations.mjs`, runs as `prebuild`), applied once inside a transaction under an advisory lock, and recorded in `app_migrations`. Databases set up by hand are recognised and not re-run. `/status` shows the result and re-checks the daily reminder job. Nobody needs to paste SQL into Supabase any more. Set `SKIP_DB_MIGRATIONS=1` to turn this off (e.g. locally, where `db-reset.sh` applies migrations).
