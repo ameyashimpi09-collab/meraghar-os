@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { withUser } from "@/lib/db";
-import { projectDetail, myTasks } from "@/lib/queries";
+import { projectDetail } from "@/lib/queries";
+import { openBlockers, taskList } from "@/lib/execution";
+import { projectSchedule as project } from "@/lib/schedule";
+import { Gantt } from "@/components/execution";
+import { BlockerList, RaiseBlockerForm } from "@/components/blockers";
+import { todayIST } from "@/lib/format";
 import { approvalList } from "@/lib/approvals";
 import { APPROVAL_STATUS_LABEL } from "@/lib/format";
 import { APPROVAL_TONE } from "@/components/approvals";
@@ -19,10 +24,18 @@ export default async function EmployeeProject({ params }: { params: Promise<{ id
   const data = await withUser(user.id, async (db) => {
     const d = await projectDetail(db, id); // returns null if not assigned (database refuses)
     if (!d) return null;
-    return { ...d, tasks: (await myTasks(db)).filter((t) => t.project_id === id), approvals: await approvalList(db, { projectId: id }) };
+    const deps = (await db.query(
+      `select d.stage_id, d.depends_on_stage_id, d.lag_days from stage_dependencies d join project_stages s on s.id = d.stage_id and s.deleted_at is null where s.project_id = $1`, [id])).rows;
+    return {
+      ...d, deps, tasks: await taskList(db, { projectId: id, mine: true, view: "all" }), approvals: await approvalList(db, { projectId: id }),
+      teamOpen: (await taskList(db, { projectId: id, view: "open" })).filter((t) => t.assigned_to !== user.id),
+      blockers: await openBlockers(db, { projectId: id }),
+    };
   });
   if (!data) notFound();
-  const { project: p, members, scope, stages, tasks, approvals } = data;
+  const { project: p, members, scope, stages, tasks, approvals, deps, teamOpen, blockers } = data;
+  const today = todayIST();
+  const proj = project(stages as never, deps, today);
   return (
     <>
       <div className="mb-1 text-xs text-ink-3"><Link href="/e/projects" className="hover:underline">My projects</Link> / {p.project_code}</div>
@@ -34,8 +47,24 @@ export default async function EmployeeProject({ params }: { params: Promise<{ id
       <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
         <div className="space-y-5">
           <Section title="My tasks on this project">
-            {tasks.length === 0 ? <div className="p-4"><Empty title="No tasks assigned to you here" /></div> : <ul className="divide-y divide-line">{tasks.map((t) => <TaskRow key={t.id} t={t} editable />)}</ul>}
+            {tasks.length === 0 ? <div className="p-4"><Empty title="No tasks assigned to you here" /></div> : <ul className="divide-y divide-line">{tasks.map((t) => <TaskRow key={t.id} t={t} editable showProject={false} />)}</ul>}
           </Section>
+          <Section title="Schedule">
+            {stages.length === 0 ? <div className="p-4"><Empty title="No schedule yet" /></div> : (
+              <Gantt today={today} endMarker={{ date: p.target_handover_date, label: "Target handover" }}
+                rows={stages.filter((s) => s.status !== "skipped").map((s) => {
+                  const x = proj.get(s.id);
+                  return { id: s.id, label: s.name, status: s.status, milestone: s.is_milestone, pct: s.completion_pct, slip: x?.slip,
+                    sub: `${fmtDate(x?.start ?? s.start_date, { year: false })} – ${fmtDate(x?.end ?? s.planned_end_date, { year: false })} · ${s.completion_pct}%`,
+                    start: s.start_date, end: s.planned_end_date, projStart: x?.start, projEnd: x?.end };
+                })} />
+            )}
+          </Section>
+          {teamOpen.length > 0 && (
+            <Section title={`Team's open tasks (${teamOpen.length})`}>
+              <ul className="divide-y divide-line">{teamOpen.map((t) => <TaskRow key={t.id} t={t} showProject={false} showAssignee />)}</ul>
+            </Section>
+          )}
           <Section title="Client approvals">
             {approvals.length === 0 ? <div className="p-4"><Empty title="No approvals yet" /></div> : (
               <ul className="divide-y divide-line">
@@ -55,17 +84,15 @@ export default async function EmployeeProject({ params }: { params: Promise<{ id
               ))}
             </ul>
           </Section>
-          <Section title="Stages">
-            {stages.length === 0 ? <div className="p-4"><Empty title="No stages yet" /></div> : (
-              <ol className="divide-y divide-line">{stages.map((s) => (
-                <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                  <span>{s.name}</span><span className="text-xs text-ink-3">{fmtDate(s.planned_end_date, { year: false })} · {s.completion_pct}%</span>
-                </li>))}
-              </ol>
-            )}
-          </Section>
         </div>
         <div className="space-y-5">
+          <Section title={`Blockers (${blockers.length})`}>
+            <BlockerList blockers={blockers} base="/e" />
+            <details className="border-t border-line">
+              <summary className="cursor-pointer px-4 py-2.5 text-xs text-brand">+ Flag a site blocker</summary>
+              <div className="px-4 pb-4"><RaiseBlockerForm projectId={p.id} stages={stages.map((s) => ({ id: s.id, name: s.name }))} /></div>
+            </details>
+          </Section>
           <Section title="Site details">
             <dl className="grid grid-cols-2 gap-4 p-4">
               <Field label="Configuration">{p.property_config}</Field>

@@ -26,7 +26,7 @@ export async function managementOverview(db: Db) {
 }
 
 export type ActionItem = {
-  kind: "task" | "approval" | "payment" | "snag" | "project";
+  kind: "task" | "approval" | "payment" | "snag" | "project" | "blocker" | "stage";
   project_id: string;
   record_id: string | null;
   project_name: string;
@@ -54,6 +54,28 @@ export async function priorityActions(db: Db, limit = 25): Promise<ActionItem[]>
       from tasks t left join profiles pr on pr.id = t.assigned_to
       where t.deleted_at is null and t.status not in ('completed', 'cancelled')
         and (t.due_date <= today_ist() or t.status = 'blocked' or t.priority = 'critical')
+      union all
+      -- Completed work waiting for a manager's review
+      select 'task', t.project_id, t.id, 'Review: ' || t.title, pr.full_name, 'high', t.due_date, 'Awaiting review',
+             'Marked complete ' || to_char(t.completed_at at time zone 'Asia/Kolkata', 'FMDD Mon')
+      from tasks t left join profiles pr on pr.id = t.assigned_to
+      where t.deleted_at is null and t.requires_review and t.status = 'completed' and t.reviewed_at is null
+        and can_manage_project(t.project_id)
+      union all
+      -- Site / project blockers (task blockers already show as blocked tasks)
+      select 'blocker', b.project_id, b.id, 'Blocker: ' || left(b.description, 70), 'Raised by ' || r.full_name,
+             case when b.created_at < now() - interval '2 days' then 'critical' else 'high' end, null::date, 'Blocked',
+             delay_label(b.delay_type) || ' · open ' || (today_ist() - (b.created_at at time zone 'Asia/Kolkata')::date) || ' day(s)'
+      from blockers b join profiles r on r.id = b.raised_by
+      where b.resolved_at is null and b.task_id is null
+      union all
+      -- Stages past their planned end and not finished
+      select 'stage', s.project_id, s.id, 'Stage behind schedule: ' || s.name, s.assigned_team,
+             case when s.planned_end_date < today_ist() - 7 then 'critical' else 'high' end, s.planned_end_date,
+             case s.status when 'delayed' then 'Delayed' when 'in_progress' then 'In progress' when 'on_hold' then 'On hold' else 'Not started' end,
+             coalesce(delay_label(s.delay_type) || coalesce(' · ' || s.delay_reason, ''), (today_ist() - s.planned_end_date) || ' day(s) past planned end')
+      from project_stages s join projects p2 on p2.id = s.project_id and p2.status in ('active', 'on_hold')
+      where s.deleted_at is null and s.status not in ('completed', 'skipped') and s.planned_end_date < today_ist()
       union all
       -- Client approvals overdue or due within 3 days
       select 'approval', a.project_id, a.id, 'Client approval: ' || a.title, 'Client',
@@ -161,21 +183,6 @@ export async function orgPeople(db: Db) {
             (select count(*) from tasks t where t.assigned_to = p.id and t.deleted_at is null and t.status not in ('completed','cancelled') and t.due_date < today_ist()) as overdue_tasks
        from profiles p where p.deleted_at is null
       order by array_position(array['owner','admin','project_manager','designer','site_supervisor','execution','client']::app_role[], p.role), p.full_name`,
-  );
-  return r.rows;
-}
-
-export async function myTasks(db: Db) {
-  const r = await db.query(
-    `select t.id, t.title, t.description, t.status, t.priority, t.due_date, t.blocked_reason, t.completed_at,
-            p.id as project_id, p.name as project_name, s.name as stage_name,
-            exists (select 1 from task_dependencies d join approvals a on a.id = d.depends_on_approval_id
-                     where d.task_id = t.id and a.status <> 'approved') as waiting_on_client
-       from tasks t join projects p on p.id = t.project_id
-       left join project_stages s on s.id = t.stage_id
-      where t.assigned_to = auth.uid() and t.deleted_at is null and p.deleted_at is null
-      order by (t.status in ('completed','cancelled')), t.due_date nulls last,
-               array_position(array['critical','high','medium','low']::priority_level[], t.priority)`,
   );
   return r.rows;
 }

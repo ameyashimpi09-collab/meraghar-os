@@ -11,7 +11,7 @@ export async function clientHome(db: Db) {
   if (!project) return null;
   const id = project.id;
   const [stages, approvals, payments, purchases, team, totals] = await Promise.all([
-    db.query(`select id, name, status, start_date, planned_end_date, actual_end_date, client_description, is_milestone, sort_order
+    db.query(`select id, name, status, start_date, planned_end_date, actual_end_date, client_description, is_milestone, sort_order, completion_pct, delay_type
                 from project_stages where project_id = $1 and deleted_at is null and status <> 'skipped' order by sort_order`, [id]),
     db.query(`select id, title, area, deadline, status from approvals
                where project_id = $1 and deleted_at is null and status in ('pending','query_raised') order by deadline nulls last`, [id]),

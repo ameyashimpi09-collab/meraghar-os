@@ -45,6 +45,7 @@ const orgId = await as(null, "service_role", async () => {
   const stages = [["Project onboarding", 3], ["Site measurement", 3], ["Design development", 14], ["Design finalisation", 7], ["Material finalisation", 7], ["Civil work", 10], ["Electrical and plumbing", 10], ["False ceiling", 7], ["Painting and wall finishes", 10], ["Carpentry", 21], ["Kitchen installation", 5], ["Wardrobe installation", 5], ["Furniture and lighting", 5], ["Client-supplied item installation", 3], ["Final finishing", 5], ["Snag rectification", 5], ["Handover", 1]];
   for (const [i, [n, days]] of stages.entries())
     await q("insert into stage_templates (organisation_id, name, sort_order, default_duration_days) values ($1,$2,$3,$4)", [org.id, n, i + 1, days]);
+  await q("select seed_default_task_templates($1)", [org.id]);
   return org.id;
 });
 
@@ -103,43 +104,54 @@ const rohan = await createProject({
 });
 
 // ---------- Execution data so dashboards show real records ----------
+let amitStages = {};
+const amitTasks = {};
 await as(id.rahul, "authenticated", async () => {
   // Stages for Amit's project
   const st = async (pid, name, order, start, end, status, pct, extra = {}) =>
     (await q(
-      `insert into project_stages (project_id, name, sort_order, start_date, planned_end_date, actual_end_date, status, completion_pct, client_description, is_milestone, created_by)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
-      [pid, name, order, start, end, status === "completed" ? end : null, status, pct, extra.desc ?? null, extra.milestone ?? false, id.rahul],
+      `insert into project_stages (project_id, name, sort_order, start_date, planned_end_date, actual_end_date, status, completion_pct, client_description, is_milestone, created_by, delay_type, delay_reason, assigned_team, template_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,(select id from stage_templates where name = $2 limit 1)) returning id`,
+      [pid, name, order, start, end, status === "completed" ? end : null, status, pct, extra.desc ?? null, extra.milestone ?? false, id.rahul, extra.delay ?? null, extra.delayReason ?? null, extra.team ?? null],
     ))[0].id;
-  await st(amit, "Project onboarding", 1, d(-40), d(-38), "completed", 100);
-  await st(amit, "Site measurement", 2, d(-37), d(-35), "completed", 100);
-  await st(amit, "Design development", 3, d(-34), d(-18), "completed", 100, { milestone: true });
-  await st(amit, "Design finalisation", 4, d(-17), d(-8), "completed", 100);
-  await st(amit, "Electrical and plumbing", 5, d(-7), d(4), "in_progress", 60, { desc: "Concealed wiring for living room and bedrooms is underway." });
-  const amitCarp = await st(amit, "Carpentry", 6, d(5), d(30), "not_started", 0, { desc: "Factory production of kitchen and wardrobe shutters." });
-  await st(amit, "Kitchen installation", 7, d(31), d(36), "not_started", 0);
-  await st(amit, "Handover", 8, d(55), d(55), "not_started", 0, { milestone: true });
+  const chain = async (ids) => {
+    for (let i = 1; i < ids.length; i++) await q("insert into stage_dependencies (stage_id, depends_on_stage_id) values ($1,$2)", [ids[i], ids[i - 1]]);
+  };
+  const a1 = await st(amit, "Project onboarding", 1, d(-40), d(-38), "completed", 100, { team: "Aditya" });
+  const a2 = await st(amit, "Site measurement", 2, d(-37), d(-35), "completed", 100, { team: "Sanjay" });
+  const a3 = await st(amit, "Design development", 3, d(-34), d(-18), "completed", 100, { team: "Pooja" });
+  const a4 = await st(amit, "Design finalisation", 4, d(-17), d(-8), "completed", 100, { milestone: true, team: "Pooja" });
+  const amitElec = await st(amit, "Electrical and plumbing", 5, d(-7), d(4), "in_progress", 60, { desc: "Concealed wiring for living room and bedrooms is underway.", team: "Sanjay + electrician" });
+  const amitCarp = await st(amit, "Carpentry", 6, d(5), d(30), "not_started", 0, { desc: "Factory production of kitchen and wardrobe shutters.", team: "Ganesh + factory" });
+  const a7 = await st(amit, "Kitchen installation", 7, d(31), d(36), "not_started", 0, { team: "Ganesh" });
+  const a8 = await st(amit, "Handover", 8, d(55), d(55), "not_started", 0, { milestone: true });
+  await chain([a1, a2, a3, a4, amitElec, amitCarp, a7, a8]);
+  amitStages = { elec: amitElec, carp: amitCarp, kitchen: a7 };
 
-  await st(kavita, "Design finalisation", 1, d(-70), d(-55), "completed", 100);
-  await st(kavita, "Civil work", 2, d(-54), d(-40), "completed", 100);
-  await st(kavita, "Carpentry", 3, d(-39), d(-10), "delayed", 75, { desc: "Wardrobe shutters awaiting final laminate delivery." });
-  await st(kavita, "Final finishing", 4, d(-9), d(-4), "not_started", 0);
-  await st(kavita, "Handover", 5, d(-3), d(-3), "not_started", 0, { milestone: true });
+  const k1 = await st(kavita, "Design finalisation", 1, d(-70), d(-55), "completed", 100, { milestone: true });
+  const k2 = await st(kavita, "Civil work", 2, d(-54), d(-40), "completed", 100);
+  const kavitaCarp = await st(kavita, "Carpentry", 3, d(-39), d(-10), "delayed", 75, { desc: "Wardrobe shutters awaiting final laminate delivery.", delay: "vendor", delayReason: "Laminate batch from vendor delayed by 2 weeks" });
+  const k4 = await st(kavita, "Final finishing", 4, d(-9), d(-4), "not_started", 0);
+  const k5 = await st(kavita, "Handover", 5, d(-3), d(-3), "not_started", 0, { milestone: true });
+  await chain([k1, k2, kavitaCarp, k4, k5]);
 
   await st(rohan, "Project onboarding", 1, d(12), d(15), "not_started", 0);
 
   // Tasks
-  const task = (pid, title, who, due, priority, status, extra = {}) =>
-    q(
-      `insert into tasks (project_id, stage_id, title, description, assigned_to, created_by, start_date, due_date, priority, status, blocked_reason, delay_type)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [pid, extra.stage ?? null, title, extra.desc ?? null, who, id.rahul, extra.start ?? null, due, priority, status, extra.blocked ?? null, extra.delay ?? null],
-    );
-  await task(amit, "Confirm electrical point positions with client", id.sanjay, d(0), "high", "in_progress");
-  await task(amit, "Send kitchen shutter cutting list to factory", id.ganesh, d(3), "high", "not_started", { stage: amitCarp });
-  await task(amit, "Finalise wardrobe internal layout drawing", id.pooja, d(-2), "critical", "in_progress");
+  const task = async (pid, title, who, due, priority, status, extra = {}) =>
+    (await q(
+      `insert into tasks (project_id, stage_id, title, description, assigned_to, created_by, start_date, due_date, priority, status, blocked_reason, delay_type, requires_review)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
+      [pid, extra.stage ?? null, title, extra.desc ?? null, who, id.rahul, extra.start ?? null, due, priority, status, extra.blocked ?? null, extra.delay ?? null, extra.review ?? false],
+    ))[0].id;
+  await task(amit, "Confirm electrical point positions with client", id.sanjay, d(0), "high", "in_progress", { stage: amitElec, start: d(-2) });
+  amitTasks.cutting = await task(amit, "Send kitchen shutter cutting list to factory", id.ganesh, d(7), "high", "not_started", { stage: amitCarp, start: d(5), desc: "Use drawing K-02. Shutter laminate must be the client-approved one." });
+  amitTasks.wardrobe = await task(amit, "Finalise wardrobe internal layout drawing", id.pooja, d(-2), "critical", "in_progress", { start: d(-6) });
   await task(amit, "Upload site measurement photos", id.sanjay, d(-5), "medium", "completed");
-  await task(kavita, "Fix wardrobe shutters – master bedroom", id.ganesh, d(-6), "critical", "blocked", { blocked: "Laminate batch delayed by vendor", delay: "vendor" });
+  amitTasks.conduit = await task(amit, "Check concealed conduit before plastering", id.sanjay, d(-1), "high", "completed", { stage: amitElec, review: true, start: d(-4) });
+  amitTasks.factory = await task(amit, "Follow up factory production", id.aditya, d(20), "medium", "not_started", { stage: amitCarp, start: d(8) });
+  amitTasks.install = await task(amit, "Install kitchen units and countertop", id.ganesh, d(35), "high", "not_started", { stage: a7, start: d(31), review: true });
+  await task(kavita, "Fix wardrobe shutters – master bedroom", id.ganesh, d(-6), "critical", "blocked", { blocked: "Laminate batch delayed by vendor", delay: "vendor", stage: kavitaCarp });
   await task(kavita, "Install profile lights in living room", id.ganesh, d(1), "medium", "not_started");
   await task(kavita, "Share revised handover date with client", id.neha, d(-1), "high", "not_started");
   await task(rohan, "Schedule site measurement visit", id.sanjay, d(14), "medium", "not_started");
@@ -170,6 +182,12 @@ await as(id.rahul, "authenticated", async () => {
     desc: "Textured beige wallpaper for the accent wall behind the sofa.", brand: "Marshalls", colour: "Sand beige", finish: "Textured", dims: "Wall 3.6 m x 2.9 m", qty: 3, unit: "rolls", impact: 1250000 });
   await approval(kavita, "Pendant light selection", "Dining", "Lighting", "Pendant lights", d(4), {
     desc: "Set of three matte black dome pendants above the dining table.", brand: "Philips", colour: "Matte black", qty: 3, unit: "nos" });
+  // Tasks that wait for other work or for the client's decision
+  const [lam] = await q("select id from approvals where project_id = $1 and title = 'Kitchen shutter laminate'", [amit]);
+  await q("insert into task_dependencies (task_id, depends_on_approval_id) values ($1,$2)", [amitTasks.cutting, lam.id]);
+  await q("insert into task_dependencies (task_id, depends_on_task_id) values ($1,$2)", [amitTasks.factory, amitTasks.cutting]);
+  await q("insert into task_dependencies (task_id, depends_on_task_id) values ($1,$2)", [amitTasks.install, amitTasks.factory]);
+
   // Make two of Kavita's approvals overdue (as if sent earlier)
   await q("update approvals set deadline = $2 where project_id = $1 and title in ('Living room wallpaper', 'Pendant light selection')", [kavita, d(-4)]);
 
@@ -205,6 +223,15 @@ await as(id.rahul, "authenticated", async () => {
             ($1,'Built-in hob','Appliance','Kitchen',860,null,510,'mm',$5,$6,'purchase_required',$4,'3 burner glass hob, cut-out 830 x 480 mm.')`,
     [amit, d(20), d(30), id.rahul, d(8), d(12)],
   );
+});
+
+// Work notes and a site-level blocker raised by the supervisor
+await as(id.sanjay, "authenticated", async () => {
+  await q("insert into task_comments (task_id, author_id, body) values ($1,$2,$3)", [amitTasks.conduit, id.sanjay, "All conduits checked room by room. Photos of each wall attached before plastering."]);
+  await q("select blocker_raise($1)", [{ project_id: amit, stage_id: amitStages.elec, delay_type: "site_builder", description: "Society allows material lift use only after 6 PM this week. Plaster and wiring material delivery is slow." }]);
+});
+await as(id.pooja, "authenticated", async () => {
+  await q("insert into task_comments (task_id, author_id, body) values ($1,$2,$3)", [amitTasks.wardrobe, id.pooja, "Waiting for the client to confirm loft height before I finalise."]);
 });
 
 // One snag on Kavita's project, raised by the client

@@ -9,3 +9,6 @@ export const IconAudit = () => <svg {...s}><path d="M12 8v4l3 2"/><circle cx="12
 export const IconApprovals = () => <svg {...s}><path d="M9 11l2.5 2.5L16 9"/><rect x="3.5" y="3.5" width="17" height="17" rx="2"/></svg>;
 export const IconPayments = () => <svg {...s}><rect x="2.5" y="5.5" width="19" height="13" rx="2"/><path d="M2.5 10h19M6.5 15h4"/></svg>;
 export const IconBell = () => <svg {...s}><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>;
+export const IconSchedule = () => <svg {...s}><rect x="3.5" y="4.5" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/><path d="M7 13.5h5M10 17h7"/></svg>;
+export const IconSettings = () => <svg {...s}><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.2 6.2l2.1 2.1M17.7 15.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 17.8l2.1-2.1M17.7 8.3l2.1-2.1"/></svg>;
+export const IconBlocker = () => <svg {...s}><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>;

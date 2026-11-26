@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { withUser } from "@/lib/db";
 import { clientHome } from "@/lib/clientQueries";
-import { fmtDate, POSSESSION_LABEL } from "@/lib/format";
+import { fmtDate, POSSESSION_LABEL, todayIST } from "@/lib/format";
 
 export const metadata = { title: "My project" };
 
@@ -17,6 +17,7 @@ export default async function ClientProject() {
   });
   if (!data) return <p className="py-20 text-center text-stone">Your project is being set up.</p>;
   const { project: p, stages, scope } = data;
+  const today = todayIST();
   const rows: [string, string | null][] = [
     ["Project code", p.project_code],
     ["Address", [p.flat_number, p.building_society, p.address_line, p.city, p.pincode].filter(Boolean).join(", ")],
@@ -50,16 +51,29 @@ export default async function ClientProject() {
             <ol className="mt-6">
               {stages.map((s) => {
                 const state = s.status === "completed" ? "done" : ["in_progress", "delayed", "on_hold"].includes(s.status) ? "now" : "next";
+                const behind = state !== "done" && (s.status === "delayed" || (s.planned_end_date && s.planned_end_date < today));
+                const needsClient = behind && (s.delay_type === "client_approval" || s.delay_type === "client_purchase");
                 return (
                   <li key={s.id} className="relative grid grid-cols-[18px_1fr] gap-5 pb-8 last:pb-0">
-                    <span className={`relative z-10 mt-1.5 h-3 w-3 rounded-full border ${state === "done" ? "border-sage bg-sage" : state === "now" ? "border-amber bg-amber-soft ring-4 ring-amber-soft" : "border-divider bg-paper"}`} />
+                    <span className={`relative z-10 mt-1.5 h-3 w-3 border ${s.is_milestone ? "rotate-45" : "rounded-full"} ${state === "done" ? "border-sage bg-sage" : state === "now" ? "border-amber bg-amber-soft ring-4 ring-amber-soft" : "border-divider bg-paper"}`} />
                     <span className="absolute top-4 left-[5px] h-full w-px bg-divider" />
                     <div>
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className={`font-serif text-xl ${state === "next" ? "text-charcoal/60" : ""}`}>{s.name}</span>
+                        <span className={`font-serif text-xl ${state === "next" ? "text-charcoal/60" : ""}`}>{s.name}{s.is_milestone && <span className="ml-2 align-middle font-sans text-[10px] tracking-[0.2em] text-stone uppercase">Milestone</span>}</span>
                         <span className="text-xs text-stone">{state === "done" ? `Completed ${fmtDate(s.actual_end_date ?? s.planned_end_date, { year: false })}` : `${fmtDate(s.start_date, { year: false })} – ${fmtDate(s.planned_end_date, { year: false })}`}</span>
                       </div>
-                      {state === "now" && s.client_description && <p className="mt-1 text-sm text-charcoal/80">{s.client_description}</p>}
+                      {state === "now" && (
+                        <div className="mt-2 flex items-center gap-3">
+                          <div className="h-[3px] w-40 bg-divider"><div className="h-[3px] bg-charcoal" style={{ width: `${s.completion_pct}%` }} /></div>
+                          <span className="text-xs text-stone">{s.completion_pct}% done</span>
+                        </div>
+                      )}
+                      {state === "now" && s.client_description && <p className="mt-2 text-sm text-charcoal/80">{s.client_description}</p>}
+                      {needsClient ? (
+                        <p className="mt-2 text-sm text-amber">Waiting on {s.delay_type === "client_approval" ? "your decision on a design or material" : "an item you are purchasing"}. <a href={s.delay_type === "client_approval" ? "/c/approvals" : "/c"} className="underline">See what we need</a></p>
+                      ) : behind ? (
+                        <p className="mt-2 text-sm text-stone">Running a little behind plan. Your project manager will share revised dates.</p>
+                      ) : null}
                     </div>
                   </li>
                 );

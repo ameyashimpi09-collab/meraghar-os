@@ -47,6 +47,11 @@ begin
     array[3,3,14,7,7,10,10,7,10,21,5,5,5,3,5,5,1]) with ordinality as t(n, d, o)
   on conflict (organisation_id, name) do nothing;
 
+  -- Standard tasks for each stage (added once; editable under Settings)
+  if to_regprocedure('public.seed_default_task_templates(uuid)') is not null then
+    perform seed_default_task_templates(v_org);
+  end if;
+
   -- Owner login (if this email already exists, its password is reset)
   select id into v_user from auth.users where lower(email) = v_email;
   if v_user is null then

@@ -1,4 +1,4 @@
-# Meraghar OS — Release 2 (Commercial control)
+# Meraghar OS — Release 3 (Execution control)
 
 Interior project operating system for Meraki Interior E-Solutions LLP.
 
@@ -17,6 +17,16 @@ Interior project operating system for Meraki Interior E-Solutions LLP.
 - Database changes: `supabase/migrations/0004_release2.sql` (same content as `supabase/release2.sql`, safe to run repeatedly).
 - Tests: `npm run test:security` (43 database permission/workflow tests), `node scripts/e2e-release2.mjs` (browser walkthrough + screenshots).
 
+## What's in Release 3
+- **Project stages**: start from the default stages (editable under Settings) or add them one by one. Each stage has dates, progress, status, team, milestone flag and client-visible wording. Stages wait for each other (no loops, same project only).
+- **Delay tracking**: a delayed stage or blocked task must record its cause (company-controlled, client approval, client purchase, vendor, site/builder). The app projects how a late stage pushes later stages and the handover, and can move the affected stages in one step. Every date change or reassignment needs a reason and is kept in the schedule history.
+- **Views**: stage list, timeline (Gantt, planned vs expected), calendar and milestones per project; a cross-project Execution Schedule page shows where delays start and what is causing them.
+- **Tasks**: create, assign (project team only), prioritise, set reviewers, depend on other tasks, client approvals or client purchases (released automatically when they are done). Completion with notes and photo evidence, manager review (accept / send back), comments, files, cancel with reason. Workload by person.
+- **Blockers**: anyone on the project can flag one; managers are notified; resolving it puts the task back in progress.
+- **Reminders and notifications**: task due tomorrow / today / overdue (managers told on day 1 overdue), stage overdue, task assigned / rescheduled / completed / ready. The client gets one "timeline updated" note per change (never internal reasons) and a note when a milestone completes.
+- Database changes: `supabase/migrations/0005_release3.sql` (applied automatically at app start).
+- Tests: `npm run test:security` (61 tests), `node scripts/e2e-release3.mjs` (browser walkthrough + screenshots).
+
 ### Database updates are automatic
 The app updates its own database when a new version starts (`src/instrumentation.ts` → `src/lib/migrate.ts`). Every file in `supabase/migrations` is bundled at build time (`scripts/gen-migrations.mjs`, runs as `prebuild`), applied once inside a transaction under an advisory lock, and recorded in `app_migrations`. Databases set up by hand are recognised and not re-run. `/status` shows the result and re-checks the daily reminder job. Nobody needs to paste SQL into Supabase any more. Set `SKIP_DB_MIGRATIONS=1` to turn this off (e.g. locally, where `db-reset.sh` applies migrations).
 
@@ -30,8 +40,9 @@ All data access runs as the signed-in user inside the database (`set role authen
 npm install
 bash scripts/db-reset.sh      # creates DB, applies migrations, loads demo data
 npm run build && npm start    # http://localhost:3000
-npm run test:security         # 22 permission tests (run on fresh demo data)
+npm run test:security         # 61 permission/workflow tests (run on fresh demo data)
 node scripts/e2e.mjs          # browser end-to-end checks + screenshots
+node scripts/e2e-release3.mjs # Release 3 walkthrough (run on fresh demo data)
 ```
 Demo logins (password `Demo@1234`): rahul@meraghar.demo (owner), aditya@ / neha@meraghar.demo (PMs), pooja@ (designer), sanjay@ (supervisor), ganesh@ (execution), amit@client.demo / kavita@client.demo / rohan@client.demo (clients).
 

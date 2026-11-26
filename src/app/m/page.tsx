@@ -10,10 +10,13 @@ export const metadata = { title: "Dashboard" };
 function actionHref(a: { kind: string; project_id: string; record_id: string | null }) {
   if (a.kind === "approval" && a.record_id) return `/m/approvals/${a.record_id}`;
   if (a.kind === "payment") return `/m/projects/${a.project_id}/payments`;
+  if (a.kind === "task" && a.record_id) return `/m/tasks/${a.record_id}`;
+  if (a.kind === "stage" && a.record_id) return `/m/projects/${a.project_id}/schedule#stage-${a.record_id}`;
+  if (a.kind === "blocker") return `/m/projects/${a.project_id}/schedule`;
   return `/m/projects/${a.project_id}`;
 }
 
-const KIND_LABEL: Record<string, string> = { task: "Task", approval: "Approval", payment: "Payment", snag: "Snag", project: "Project" };
+const KIND_LABEL: Record<string, string> = { task: "Task", approval: "Approval", payment: "Payment", snag: "Snag", project: "Project", blocker: "Blocker", stage: "Stage" };
 
 export default async function ManagementDashboard() {
   const user = await requireUser("management");
@@ -40,14 +43,14 @@ export default async function ManagementDashboard() {
         <Stat label="Overdue payments" href="/m/payments" value={o.overdue_payments} tone={o.overdue_payments ? "red" : undefined} hint={o.overdue_payments ? `${inr(o.overdue_amount)} outstanding` : undefined} />
         <Stat href="/m/payments" label="Upcoming payments (30 days)" value={o.upcoming_payments} hint={o.upcoming_payments ? inr(o.upcoming_amount) : undefined} />
         <Stat label="Open snags" value={o.open_snags} tone={o.open_snags ? "amber" : undefined} />
-        <Stat label="Overdue tasks" value={o.overdue_tasks} tone={o.overdue_tasks ? "red" : undefined} />
-        <Stat label="Tasks due today" value={o.tasks_today} />
+        <Stat label="Overdue tasks" value={o.overdue_tasks} tone={o.overdue_tasks ? "red" : undefined} href="/m/tasks?view=overdue" />
+        <Stat label="Tasks due today" value={o.tasks_today} href="/m/tasks?view=today" />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_380px]">
         <Section title="Priority action centre" action={<span className="text-xs text-ink-3">{actions.length} item{actions.length === 1 ? "" : "s"}</span>}>
           {actions.length === 0 ? (
-            <div className="p-4"><Empty title="Nothing needs attention right now">New overdue tasks, approvals, payments and snags will appear here automatically.</Empty></div>
+            <div className="p-4"><Empty title="Nothing needs attention right now">New overdue tasks, blockers, late stages, approvals, payments and snags will appear here automatically.</Empty></div>
           ) : (
             <>
               {/* Desktop table */}

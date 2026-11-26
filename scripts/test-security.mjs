@@ -316,6 +316,166 @@ await test("People only see their own notifications and can only mark them read"
   await denied(q("insert into notifications (organisation_id, recipient_id, event_type, title) select organisation_id, id, 'x', 'x' from profiles where id = auth.uid()"));
 }));
 
+// ---------------------------------------------------------------- Release 3
+const taskId = async (q, title) => (await q("select id from tasks where title = $1", [title]))[0].id;
+
+console.log("\nExecution: stages, tasks, dependencies, blockers (Release 3)");
+await test("Clients never see tasks, blockers, schedule history, dependencies or team-only stages", () => as("amit", async (q) => {
+  eq((await q("select * from tasks")).length, 0, "tasks");
+  eq((await q("select * from blockers")).length, 0, "blockers");
+  eq((await q("select * from schedule_changes")).length, 0, "changes");
+  eq((await q("select * from stage_dependencies")).length, 0, "deps");
+  eq((await q("select * from task_waiting_on")).length, 0, "waiting");
+  await become(q, "rahul");
+  await q("update project_stages set client_visible = false where project_id = $1 and name = 'Carpentry'", [projects.amit]);
+  await become(q, "amit");
+  eq((await q("select name from project_stages where name = 'Carpentry'")).length, 0, "hidden stage");
+}));
+await test("Employees see tasks only on projects they are assigned to", () => as("ganesh", async (q) => {
+  const r = await q("select distinct project_id from tasks");
+  eq(r.some((x) => x.project_id === projects.rohan), false, "rohan");
+  eq(r.length, 2);
+}));
+await test("The assignee can update progress, but not reassign, move the deadline or cancel", () => as("ganesh", async (q) => {
+  const id = await taskId(q, "Install profile lights in living room");
+  eq((await q("update tasks set status = 'in_progress' where id = $1 returning status", [id]))[0].status, "in_progress");
+  await denied(q("update tasks set due_date = due_date + 3 where id = $1", [id]));
+  await denied(q("update tasks set assigned_to = $2 where id = $1", [id, people.neha]));
+  await denied(q("update tasks set status = 'cancelled' where id = $1", [id]));
+}));
+await test("Someone else on the team cannot change another person's task", () => as("sanjay", async (q) => {
+  const id = await taskId(q, "Send kitchen shutter cutting list to factory");
+  eq((await q("update tasks set status = 'completed' where id = $1 returning id", [id])).length, 0);
+}));
+await test("Tasks can only be given to people on the project's team", () => as("rahul", async (q) => {
+  const id = await taskId(q, "Install profile lights in living room");
+  await denied(q("select set_config('app.change_reason', 'test', true)").then(() => q("update tasks set assigned_to = $2 where id = $1", [id, people.sanjay])));
+  await denied(q("insert into tasks (project_id, title, assigned_to) values ($1, 'x', $2)", [projects.kavita, people.amit]));
+}));
+await test("Moving a deadline needs a reason, is recorded, and tells the assignee", () => as("aditya", async (q) => {
+  const id = await taskId(q, "Send kitchen shutter cutting list to factory");
+  await denied(q("update tasks set due_date = due_date + 5 where id = $1", [id]));
+  await q("select set_config('app.change_reason', 'Factory slot moved', true)");
+  await q("update tasks set due_date = due_date + 5 where id = $1", [id]);
+  const c = await q("select reason, changed_by from schedule_changes where entity_id = $1", [id]);
+  eq(c.length, 1); eq(c[0].reason, "Factory slot moved"); eq(c[0].changed_by, people.aditya);
+  await q("set local role service_role");
+  eq((await q("select count(*)::int as n from notifications where recipient_id = $1 and entity_id = $2 and event_type = 'task.rescheduled'", [people.ganesh, id]))[0].n, 1);
+}));
+await test("Moving stage dates needs a reason; the client gets one timeline update, not one per stage", () => as("aditya", async (q) => {
+  await denied(q("update project_stages set planned_end_date = planned_end_date + 3 where project_id = $1 and name = 'Kitchen installation'", [projects.amit]));
+  await q("select set_config('app.change_reason', 'Carpentry slipped', true)");
+  const n = await q("update project_stages set start_date = start_date + 3, planned_end_date = planned_end_date + 3 where project_id = $1 and status = 'not_started' returning id", [projects.amit]);
+  eq(n.length >= 2, true, "stages moved");
+  eq((await q("select count(*)::int as n from schedule_changes where project_id = $1 and entity_type = 'stage'", [projects.amit]))[0].n, n.length);
+  await q("set local role service_role");
+  eq((await q("select count(*)::int as n from notifications where recipient_id = $1 and event_type = 'schedule.changed'", [people.amit]))[0].n, 1);
+}));
+await test("A stage marked delayed must say why", () => as("aditya", async (q) => {
+  await denied(q("update project_stages set status = 'delayed' where project_id = $1 and name = 'Carpentry'", [projects.amit]));
+  await q("update project_stages set status = 'delayed', delay_type = 'vendor' where project_id = $1 and name = 'Carpentry'", [projects.amit]);
+}));
+await test("Dependency loops are refused (stages and tasks)", () => as("aditya", async (q) => {
+  const [a] = await q("select id from project_stages where project_id = $1 and name = 'Project onboarding'", [projects.amit]);
+  const [h] = await q("select id from project_stages where project_id = $1 and name = 'Handover'", [projects.amit]);
+  await denied(q("insert into stage_dependencies (stage_id, depends_on_stage_id) values ($1,$2)", [a.id, h.id]));
+  const cut = await taskId(q, "Send kitchen shutter cutting list to factory");
+  const inst = await taskId(q, "Install kitchen units and countertop");
+  await denied(q("insert into task_dependencies (task_id, depends_on_task_id) values ($1,$2)", [cut, inst]));
+  const [other] = await q("select id from tasks where project_id = $1 limit 1", [projects.rohan]);
+  await denied(q("insert into task_dependencies (task_id, depends_on_task_id) values ($1,$2)", [cut, other.id]));
+}));
+await test("A task waiting on a client approval shows it, and becomes ready (assignee told) once approved", () => as("ganesh", async (q) => {
+  const id = await taskId(q, "Send kitchen shutter cutting list to factory");
+  const w = await q("select kind, label, met from task_waiting_on where task_id = $1", [id]);
+  eq(w.length, 1); eq(w[0].kind, "approval"); eq(w[0].met, false);
+  await become(q, "amit");
+  const [rev] = await q("select r.id, r.approval_id, r.project_id from approval_revisions r join approvals a on a.id = r.approval_id where a.title = 'Kitchen shutter laminate' and r.status = 'published'");
+  await q("insert into approval_responses (approval_id, revision_id, project_id, action, responded_by) values ($1,$2,$3,'approve',auth.uid())", [rev.approval_id, rev.id, rev.project_id]);
+  await become(q, "ganesh");
+  eq((await q("select met from task_waiting_on where task_id = $1", [id]))[0].met, true);
+  eq((await q("select count(*)::int as n from notifications where recipient_id = auth.uid() and entity_id = $1 and event_type = 'task.ready'", [id]))[0].n, 1);
+}));
+await test("Completing a task frees the tasks waiting for it", () => as("ganesh", async (q) => {
+  const cut = await taskId(q, "Send kitchen shutter cutting list to factory");
+  await become(q, "amit");
+  const [rev] = await q("select r.id, r.approval_id, r.project_id from approval_revisions r join approvals a on a.id = r.approval_id where a.title = 'Kitchen shutter laminate' and r.status = 'published'");
+  await q("insert into approval_responses (approval_id, revision_id, project_id, action, responded_by) values ($1,$2,$3,'approve',auth.uid())", [rev.approval_id, rev.id, rev.project_id]);
+  await become(q, "ganesh");
+  await q("update tasks set status = 'completed' where id = $1", [cut]);
+  await q("set local role service_role");
+  const f = await taskId(q, "Follow up factory production");
+  eq((await q("select count(*)::int as n from notifications where recipient_id = $1 and entity_id = $2 and event_type = 'task.ready'", [people.aditya, f]))[0].n, 1);
+}));
+await test("Flagging a blocker blocks the task, tells the manager, and only resolving it unblocks", () => as("ganesh", async (q) => {
+  const id = await taskId(q, "Install profile lights in living room");
+  await q("select blocker_raise($1)", [{ task_id: id, delay_type: "vendor", description: "Profile light drivers not delivered" }]);
+  eq((await q("select status from tasks where id = $1", [id]))[0].status, "blocked");
+  await denied(q("update tasks set status = 'in_progress' where id = $1", [id]));
+  const [b] = await q("select id from blockers where task_id = $1 and resolved_at is null", [id]);
+  await q("select blocker_resolve($1, 'Delivered')", [b.id]);
+  eq((await q("select status from tasks where id = $1", [id]))[0].status, "in_progress");
+  await q("set local role service_role");
+  eq((await q("select count(*)::int as n from notifications where recipient_id = $1 and event_type = 'task.blocked' and entity_id = $2", [people.neha, b.id]))[0].n, 1);
+}));
+await test("Blockers need a cause, and only the project's team can flag them", () => as("ganesh", async (q) => {
+  await denied(q("select blocker_raise($1)", [{ project_id: projects.kavita, description: "No cause given" }]));
+  await denied(q("select blocker_raise($1)", [{ project_id: projects.rohan, delay_type: "company", description: "Not my project" }]));
+  await become(q, "amit");
+  await denied(q("select blocker_raise($1)", [{ project_id: projects.amit, delay_type: "company", description: "Client trying" }]));
+  await denied(q("insert into blockers (project_id, description, delay_type, raised_by) values ($1,'x','company',auth.uid())", [projects.amit]));
+}));
+await test("Reviews: completed work goes to the manager; only management can accept it", () => as("sanjay", async (q) => {
+  const id = await taskId(q, "Check concealed conduit before plastering");
+  await denied(q("update tasks set reviewed_at = now() where id = $1", [id]));
+  await denied(q("select task_review($1, true, null)", [id]));
+  await become(q, "aditya");
+  await denied(q("select task_review($1, false, '')", [id]));
+  await q("select task_review($1, false, 'Photos of the kitchen wall are missing')", [id]);
+  eq((await q("select status from tasks where id = $1", [id]))[0].status, "in_progress");
+  await become(q, "sanjay");
+  await q("update tasks set status = 'completed' where id = $1", [id]);
+  await become(q, "aditya");
+  eq((await q("select count(*)::int as n from notifications where recipient_id = auth.uid() and entity_id = $1 and event_type = 'task.completed'", [id]))[0].n, 1);
+  await q("select task_review($1, true, null)", [id]);
+  eq((await q("select reviewed_at is not null as ok from tasks where id = $1", [id]))[0].ok, true);
+}));
+await test("Default stages and standard tasks set up a new project, assigned by role", () => as("rahul", async (q) => {
+  const [p] = await q("select create_project($1) as id", [{ name: "Test – 1BHK", project_manager_id: people.neha, designer_id: people.pooja, execution_ids: [people.sanjay, people.ganesh] }]);
+  const n = (await q("select project_apply_stage_template($1, '2027-01-04', true) as n", [p.id]))[0].n;
+  eq(n, 17, "stages");
+  eq((await q("select count(*)::int as n from stage_dependencies d join project_stages s on s.id = d.stage_id where s.project_id = $1", [p.id]))[0].n, 16, "chain");
+  const t = await q("select t.title, pr.role from tasks t left join profiles pr on pr.id = t.assigned_to where t.project_id = $1", [p.id]);
+  eq(t.length > 20, true, "tasks");
+  eq(t.find((x) => x.title.startsWith("Prepare layout"))?.role, "designer");
+  await denied(q("select project_apply_stage_template($1, '2027-01-04', true)", [p.id]));
+  await q("set local role service_role");
+  eq((await q("select count(*)::int as n from notifications where recipient_id = $1 and event_type = 'task.assigned' and project_id = $2", [people.pooja, p.id]))[0].n, 1, "one summary");
+}));
+await test("A project manager can't set up or change another manager's project", () => as("neha", async (q) => {
+  await become(q, null);
+  const [st] = await q("select id from project_stages where project_id = $1 limit 1", [projects.amit]);
+  await become(q, "neha");
+  await denied(q("select stage_add_template_tasks($1)", [st.id]));
+  await denied(q("select project_apply_stage_template($1, '2027-01-01', false)", [projects.rohan]));
+  eq((await q("update project_stages set completion_pct = 10 where project_id = $1 returning id", [projects.amit])).length, 0);
+}));
+await test("Task deadline reminders: the day before, on the day, and overdue (once each)", () => as(null, async (q) => {
+  await q("set local role service_role");
+  const [t] = await q("select id, due_date, assigned_to from tasks where title = 'Install kitchen units and countertop'");
+  for (const off of [-2, -1, -1, 0, 1, 2]) await q("select run_reminders(($1::date + $2::int))", [t.due_date, off]);
+  const n = await q("select event_type from notifications where entity_id = $1 and recipient_id = $2 and event_type in ('task.deadline', 'task.overdue') order by event_type", [t.id, t.assigned_to]);
+  eq(n.map((x) => x.event_type).join(","), "task.deadline,task.deadline,task.overdue");
+}));
+await test("Task photos are visible to the team only", () => as("ganesh", async (q) => {
+  const id = await taskId(q, "Install profile lights in living room");
+  const [f] = await q("insert into stored_files (project_id, entity_type, entity_id, file_name, mime_type, size_bytes, data, uploaded_by) select project_id, 'task', id, 'a.jpg', 'image/jpeg', 3, '\\x010203', auth.uid() from tasks where id = $1 returning id", [id]);
+  await become(q, "kavita");
+  eq((await q("select id from stored_files where id = $1", [f.id])).length, 0, "client");
+  await become(q, "neha");
+  eq((await q("select id from stored_files where id = $1", [f.id])).length, 1, "manager");
+}));
+
 console.log("\nGeneral");
 await test("Signed-out visitors can read nothing", () => as(null, async (q) => {
   await denied(q("select * from projects"));

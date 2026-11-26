@@ -149,3 +149,36 @@ export function rupeesToPaise(v: FormDataEntryValue | null | undefined): number 
   if (!/^-?\d+(\.\d{1,2})?$/.test(s)) return NaN;
   return Math.round(Number(s) * 100);
 }
+
+// ---------- Release 3: execution ----------
+export const STAGE_STATUS_LABEL: Record<string, string> = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  completed: "Completed",
+  on_hold: "On hold",
+  delayed: "Delayed",
+  skipped: "Skipped",
+};
+export const DELAY_LABEL: Record<string, string> = {
+  company: "Company-controlled",
+  client_approval: "Client approval",
+  client_purchase: "Client purchase",
+  vendor: "Vendor",
+  site_builder: "Site / builder",
+};
+export const DELAY_HINT: Record<string, string> = {
+  company: "Our own team or planning",
+  client_approval: "Waiting for the client to decide",
+  client_purchase: "Waiting for an item the client is buying",
+  vendor: "Supplier, factory or contractor",
+  site_builder: "Society, builder, utilities or site access",
+};
+export const MEMBER_ROLE_SHORT: Record<string, string> = {
+  project_manager: "Project manager", designer: "Designer", site_supervisor: "Site supervisor", execution: "Execution",
+};
+
+/** Adds whole days to a "YYYY-MM-DD" date. */
+export function addDays(d: string, n: number): string {
+  const t = Date.parse(d + "T00:00:00Z") + n * 86_400_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
