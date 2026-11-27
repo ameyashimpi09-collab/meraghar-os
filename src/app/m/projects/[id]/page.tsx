@@ -14,6 +14,7 @@ import { AddMemberForm, EditProjectForm, ResetPasswordButton } from "./ProjectFo
 import { taskList } from "@/lib/execution";
 import { TaskRow } from "@/components/TaskRow";
 import { quotationValue } from "@/lib/quotations";
+import { ClientExperiencePanel } from "@/components/ClientExperiencePanel";
 
 const STAGE_TONE = { completed: "green", in_progress: "blue", delayed: "red", on_hold: "amber", not_started: "gray", skipped: "gray" } as const;
 const STAGE_LABEL: Record<string, string> = { completed: "Completed", in_progress: "In progress", delayed: "Delayed", on_hold: "On hold", not_started: "Not started", skipped: "Skipped" };
@@ -24,6 +25,7 @@ const ENTITY_TEXT: Record<string, string> = {
   payment_milestones: "payment milestone", payment_transactions: "payment", payment_due_date_changes: "payment due date", snags: "snag", purchase_requirements: "purchase item",
   approval_messages: "reply to client", internal_notes: "internal note", blockers: "blocker", stage_dependencies: "stage dependency",
   task_dependencies: "task dependency", schedule_changes: "schedule change", project_quotations: "quotation",
+  site_updates: "site update", site_update_media: "site photo", snag_comments: "snag message", project_documents: "document",
 };
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -119,6 +121,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               </table>
             )}
           </Section>
+
+          <ClientExperiencePanel projectId={p.id} base="/m" />
 
           <Section title="Design & material approvals" action={p.can_manage ? <Link href={`/m/projects/${p.id}/approvals/new`} className="btn-brand px-3 py-1 text-xs">+ New approval</Link> : null}>
             {approvals.length === 0 ? <div className="p-4"><Empty title="No approvals yet">Send designs and material selections to the client for a recorded decision.</Empty></div> : (

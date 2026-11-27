@@ -5,6 +5,8 @@
 import pg from "pg";
 import bcrypt from "bcryptjs";
 import fs from "node:fs";
+import zlib from "node:zlib";
+import { randomUUID } from "node:crypto";
 
 for (const line of fs.readFileSync(new URL("../.env.local", import.meta.url), "utf8").split("\n")) {
   const m = line.match(/^([A-Z_]+)=(.*)$/);
@@ -241,6 +243,94 @@ await as(id.kavita, "authenticated", async () => {
      values ($1,'Kitchen','carpentry','Drawer below the hob does not close fully.','high',$2)`,
     [kavita, id.kavita],
   );
+});
+
+// ---------- Release 4: site updates with photos, more purchases, documents ----------
+// A simple "site photo" (wall, floor and a few shapes) as a PNG, so demo data has real images.
+function sitePhoto(seed, w = 800, h = 600) {
+  const rnd = (() => { let x = seed * 9973; return () => ((x = (x * 16807) % 2147483647) / 2147483647); })();
+  const wall = [210 + rnd() * 30, 200 + rnd() * 30, 185 + rnd() * 30], floor = [150 + rnd() * 40, 120 + rnd() * 30, 95 + rnd() * 30];
+  const rects = Array.from({ length: 4 }, () => ({ x: rnd() * w * 0.8, y: rnd() * h * 0.6, w: 60 + rnd() * 220, h: 60 + rnd() * 260,
+    c: [130 + rnd() * 70, 115 + rnd() * 60, 95 + rnd() * 50] }));
+  const horizon = Math.round(h * (0.6 + rnd() * 0.1));
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    raw[y * (w * 3 + 1)] = 0;
+    for (let x = 0; x < w; x++) {
+      let c = y < horizon ? wall.map((v) => v - (y / h) * 25) : floor.map((v) => v - ((y - horizon) / h) * 30 + ((x + y) % 40 < 2 ? -15 : 0));
+      for (const r of rects) if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) c = r.c.map((v) => v - ((x - r.x) / r.w) * 20);
+      const o = y * (w * 3 + 1) + 1 + x * 3;
+      raw[o] = c[0]; raw[o + 1] = c[1]; raw[o + 2] = c[2];
+    }
+  }
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (buf) => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0))]);
+}
+async function storeFile(projectId, entityType, entityId, name, mime, buf, uid) {
+  const fid = randomUUID();
+  await q(`insert into stored_files (id, project_id, entity_type, entity_id, file_name, mime_type, size_bytes, data, uploaded_by) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [fid, projectId, entityType, entityId, name, mime, buf.length, buf, uid]);
+  return fid;
+}
+async function addUpdate(uid, projectId, u, photos) {
+  const [row] = await q(
+    `insert into site_updates (project_id, title, site_datetime, area, work_category, work_completed, current_activity, next_activity, blockers, status, client_visible, created_by)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,auth.uid()) returning id`,
+    [projectId, u.title, u.at, u.area, u.work, u.done, u.now ?? null, u.next ?? null, u.blockers ?? null, u.status, u.client_visible]);
+  let i = 0;
+  for (const p of photos) {
+    const fid = await storeFile(projectId, "site_update", row.id, `site-${p.seed}.png`, "image/png", sitePhoto(p.seed), uid);
+    await q(`insert into site_update_media (site_update_id, project_id, storage_path, area, caption, client_visible, sort_order, uploaded_by, file_name, mime_type)
+             values ($1,$2,$3,$4,$5,$6,$7,auth.uid(),$8,'image/png')`, [row.id, projectId, fid, p.area ?? u.area, p.caption ?? null, p.visible ?? true, ++i, `site-${p.seed}.png`]);
+  }
+  return row.id;
+}
+const ts = (n, hh = 11) => `${d(n)}T${String(hh).padStart(2, "0")}:30:00+05:30`;
+// Shared updates (written and shared by the project manager)
+await as(id.aditya, "authenticated", async () => {
+  await addUpdate(id.aditya, amit, { title: "Site handed over, demolition complete", at: ts(-12), area: "Whole home", work: "Civil work", status: "published", client_visible: true,
+    done: "Old kitchen platform and bathroom tiles removed. Debris cleared from the flat and the society lift area.", now: "Marking the new electrical points on walls.", next: "Wall chasing for conduits starts on Monday." },
+    [{ seed: 11, area: "Kitchen", caption: "Kitchen after removing the old platform" }, { seed: 12, area: "Master bedroom", caption: "Master bedroom, ready for marking" }, { seed: 13, area: "Living room" }]);
+  await addUpdate(id.aditya, amit, { title: "Electrical conduits in progress", at: ts(-4, 16), area: "Living room", work: "Electrical", status: "published", client_visible: true,
+    done: "Conduits laid in the living room and both bedrooms as per the approved layout. Switchboard positions checked with you on site.", now: "Kitchen conduits and the AC points.", next: "Plumbing lines in the kitchen and bathrooms, then plastering.",
+    blockers: "Society lift only after 6 PM; material delivery slow." },
+    [{ seed: 21, caption: "Living room conduits before plaster" }, { seed: 22, area: "Master bedroom", caption: "Bed-side switch points" }, { seed: 23, area: "Kitchen", caption: "Kitchen points marked" }, { seed: 24, visible: false, caption: "Damaged section near shaft (team only)" }]);
+});
+// Waiting for review (written by the site supervisor)
+await as(id.sanjay, "authenticated", async () => {
+  await addUpdate(id.sanjay, amit, { title: "Kitchen plumbing lines laid", at: ts(-1, 17), area: "Kitchen", work: "Plumbing", status: "pending_review", client_visible: true,
+    done: "Inlet and drain lines laid for the sink and the washing machine point. Pressure test done, no leaks.", next: "Plaster on the kitchen walls tomorrow." },
+    [{ seed: 31, caption: "Sink inlet and drain" }, { seed: 32, caption: "Washing machine point" }]);
+});
+await as(id.neha, "authenticated", async () => {
+  await addUpdate(id.neha, kavita, { title: "Wardrobe shutters installed", at: ts(-2), area: "Master bedroom", work: "Wardrobes", status: "published", client_visible: true,
+    done: "Wardrobe shutters fitted and aligned. Handles go on after you confirm the finish.", next: "Kitchen shutters and the loft." },
+    [{ seed: 41, caption: "Wardrobe with shutters" }, { seed: 42, area: "Kitchen", caption: "Kitchen carcass ready" }]);
+});
+// More client purchases on Amit's project + a reference image
+await as(id.rahul, "authenticated", async () => {
+  const rows = await q(
+    `insert into purchase_requirements (project_id, item_name, category, area, width, height, depth, unit, required_purchase_date, required_delivery_date, status, responsibility, description, technical_specs, created_by)
+     values ($1,'Washing machine','Appliance','Utility',600,850,560,'mm',$2,$3,'purchased','client','Front load, fits under the utility counter.','Water inlet and drain on the left. 15A socket provided.',auth.uid()),
+            ($1,'Chimney','Appliance','Kitchen',90,null,null,'cm',$4,$5,'delivery_scheduled','client','Wall-mounted, 90 cm wide, matching the hob.','Duct outlet 6 inch. Suction 1200 m³/h or more.',auth.uid()),
+            ($1,'Ceiling fans','Fans','Whole home',null,null,null,'mm',$6,$7,'not_yet_required','client','Four fans: living, dining and two bedrooms.',null,auth.uid()),
+            ($1,'Sanitaryware set','Sanitaryware','Bathroom',null,null,null,'mm',$8,$9,'delivered','client','WC, basin and health faucet as selected.',null,auth.uid())
+     returning id, item_name`, [amit, d(-6), d(-1), d(-3), d(2), d(30), d(45), d(-20), d(-10)]);
+  const fridge = (await q("select id from purchase_requirements where project_id = $1 and item_name = 'Refrigerator'", [amit]))[0];
+  const fid = await storeFile(amit, "purchase", fridge.id, "fridge-reference.png", "image/png", sitePhoto(77, 400, 400), id.rahul);
+  await q("update purchase_requirements set reference_image_path = $2, suggested_options = $3, technical_specs = $4 where id = $1",
+    [fridge.id, fid, "Samsung RT42 or LG GL-T422 (both fit)", "Leave 25 mm on each side and 50 mm at the back for ventilation."]);
+  void rows;
+  // Shared documents
+  for (const [title, type, visible, seed] of [["Final floor plan", "floor_plan", true, 51], ["Electrical layout", "electrical_layout", true, 52], ["Site measurements", "site_measurement", false, 53]]) {
+    const docId = randomUUID();
+    const fid2 = await storeFile(amit, "document", docId, `${title}.png`, "image/png", sitePhoto(seed, 500, 360), id.rahul);
+    await q(`insert into project_documents (id, project_id, doc_type, title, storage_path, file_name, mime_type, size_bytes, client_visible, uploaded_by)
+             values ($1,$2,$3,$4,$5,$6,'image/png',$7,$8,auth.uid())`, [docId, amit, type, title, fid2, `${title}.png`, 40000, visible]);
+  }
 });
 
 console.log(`Seeded: organisation, ${people.length} people, 3 projects. Password for all demo accounts: Demo@1234`);

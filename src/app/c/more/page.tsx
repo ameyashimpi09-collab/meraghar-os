@@ -10,6 +10,10 @@ export default async function ClientMore() {
   const user = await requireUser("client");
   const unread = await withUser(user.id, (db) => unreadCount(db));
   const items = [
+    { href: "/c/payments", label: "Payments", note: "" },
+    { href: "/c/purchases", label: "Purchases", note: "" },
+    { href: "/c/snags", label: "Snags & concerns", note: "" },
+    { href: "/c/documents", label: "Documents", note: "" },
     { href: "/c/notifications", label: "Notifications", note: unread ? `${unread} unread` : "" },
     { href: "/c/profile", label: "Account", note: "" },
   ];
@@ -22,7 +26,6 @@ export default async function ClientMore() {
         ))}
         <li><form action={logout}><button className="w-full py-5 text-left font-serif text-2xl text-stone">Sign out</button></form></li>
       </ul>
-      <p className="mt-10 text-sm text-stone">Site updates, purchases, snags and documents arrive in upcoming releases.</p>
     </>
   );
 }

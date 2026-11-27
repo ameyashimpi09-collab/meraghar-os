@@ -3,6 +3,7 @@
 // demo data is left unchanged. Run: npm run test:security
 import pg from "pg";
 import fs from "node:fs";
+import crypto from "node:crypto";
 
 for (const line of fs.readFileSync(new URL("../.env.local", import.meta.url), "utf8").split("\n")) {
   const m = line.match(/^([A-Z_]+)=(.*)$/);
@@ -528,6 +529,138 @@ await test("Quotation PDF is visible to the project's managers only", () => as("
 }));
 await test("Clients cannot upload a quotation file", () => as("amit", async (q) => {
   await denied(q("insert into stored_files (project_id, entity_type, entity_id, file_name, mime_type, size_bytes, data, uploaded_by) values ($1, 'quotation', gen_random_uuid(), 'q.pdf', 'application/pdf', 3, '\\x010203', auth.uid())", [projects.amit]));
+}));
+
+console.log("\nRelease 4: site updates, purchases, snags, documents");
+const FILE = (proj, type, ent) => async (q) => {
+  const id = crypto.randomUUID();
+  await q(`insert into stored_files (id, project_id, entity_type, entity_id, file_name, mime_type, size_bytes, data, uploaded_by)
+    values ($1, $2, $3, $4, 'p.png', 'image/png', 3, '\\x010203', auth.uid())`, [id, proj, type, ent]);
+  return [{ id }];
+};
+await test("Client never sees updates waiting for review, internal updates or team-only photos", () => as("amit", async (q) => {
+  const ups = await q("select status, client_visible from site_updates");
+  eq(ups.every((u) => u.status === "published" && u.client_visible), true, "only shared updates");
+  eq(ups.length, 2, "shared updates");
+  eq((await q("select id from site_update_media where not client_visible")).length, 0, "team-only photos");
+  eq((await q("select count(*)::int as n from stored_files where entity_type = 'site_update'"))[0].n, 6, "photo files");
+}));
+await test("Employee can send an update for review but cannot share it with the client", () => as("sanjay", async (q) => {
+  const [u] = await q("insert into site_updates (project_id, title, work_completed, status, created_by) values ($1, 't', 'w', 'pending_review', auth.uid()) returning id, client_visible", [projects.amit]);
+  eq(u.client_visible, true, "review = request to share");
+  await denied(q("update site_updates set status = 'published', client_visible = true where id = $1", [u.id]));
+  await denied(q("insert into site_updates (project_id, title, work_completed, status, client_visible, created_by) values ($1, 't', 'w', 'published', true, auth.uid())", [projects.amit]));
+  const [i] = await q("insert into site_updates (project_id, title, work_completed, status, client_visible, created_by) values ($1, 'internal', 'w', 'published', false, auth.uid()) returning id", [projects.amit]);
+  eq(!!i.id, true);
+}));
+await test("Manager sharing an update notifies the client; withdrawing hides it again", () => as("aditya", async (q) => {
+  const [u] = await q("select id from site_updates where status = 'pending_review' and project_id = $1", [projects.amit]);
+  await q("update site_updates set status = 'published', client_visible = true where id = $1", [u.id]);
+  await become(q, "amit");
+  eq((await q("select id from site_updates where id = $1", [u.id])).length, 1, "client sees it");
+  eq((await q("select id from notifications where entity_id = $1 and event_type = 'site_update.published'", [u.id])).length, 1, "client notified");
+  await become(q, "aditya");
+  await q("update site_updates set status = 'archived', client_visible = false where id = $1", [u.id]);
+  await become(q, "amit");
+  eq((await q("select id from site_updates where id = $1", [u.id])).length, 0, "hidden after withdraw");
+}));
+await test("Other clients and unassigned staff cannot see a project's site photos", () => as("kavita", async (q) => {
+  eq((await q("select id from site_updates where project_id = $1", [projects.amit])).length, 0);
+  eq((await q("select id from stored_files where project_id = $1", [projects.amit])).length, 0);
+}));
+await test("Client can only move their purchase to bought / booked / delivered, and not edit the spec", () => as("amit", async (q) => {
+  const [x] = await q("select id from purchase_requirements where item_name = 'Built-in hob'");
+  await denied(q("update purchase_requirements set width = 10 where id = $1", [x.id]));
+  await denied(q("update purchase_requirements set status = 'installed' where id = $1", [x.id]));
+  await denied(q("insert into purchase_requirements (project_id, item_name) values ($1, 'x')", [projects.amit]));
+  const [r] = await q("update purchase_requirements set status = 'purchased', client_remarks = 'Bought Bosch' where id = $1 returning client_updated_at", [x.id]);
+  eq(!!r.client_updated_at, true);
+  const h = await q("select new_status, note from purchase_status_changes where purchase_id = $1 order by created_at desc limit 1", [x.id]);
+  eq(h[0].new_status, "purchased"); eq(h[0].note, "Bought Bosch");
+}));
+await test("Managers are notified when the client updates a purchase", () => as("amit", async (q) => {
+  const [x] = await q("select id from purchase_requirements where item_name = 'Refrigerator'");
+  await q("update purchase_requirements set status = 'delivered' where id = $1", [x.id]);
+  await become(q, "aditya");
+  eq((await q("select id from notifications where entity_id = $1 and event_type = 'purchase.delivered'", [x.id])).length, 1);
+}));
+await test("Employees can update purchase progress but not the item details", () => as("sanjay", async (q) => {
+  const [x] = await q("select id from purchase_requirements where item_name = 'Chimney'");
+  await denied(q("update purchase_requirements set item_name = 'x' where id = $1", [x.id]));
+  eq((await q("update purchase_requirements set status = 'delivered' where id = $1 returning id", [x.id])).length, 1);
+}));
+await test("Purchase reminders: before the date, and late items to client and managers", () => as(null, async () => {
+  await db.query("reset role");
+  const [hob] = (await db.query("select id, project_id, required_purchase_date::text from purchase_requirements where item_name = 'Built-in hob'")).rows;
+  const day = new Date(Date.parse(hob.required_purchase_date + "T00:00:00Z") - 3 * 86400000).toISOString().slice(0, 10);
+  await db.query("select run_reminders($1::date)", [day]);
+  eq((await db.query("select count(*)::int as n from notifications where entity_id = $1 and event_type = 'purchase.deadline'", [hob.id])).rows[0].n, 1, "3 days before");
+  const [wm] = (await db.query("select id from purchase_requirements where item_name = 'Washing machine'")).rows;
+  await db.query("select run_reminders(null)");
+  eq((await db.query("select count(*)::int as n from notifications where entity_id = $1 and event_type = 'purchase.delayed'", [wm.id])).rows[0].n >= 2, true, "client + manager told");
+  await db.query("select run_reminders(null)");
+  eq((await db.query("select count(*)::int as n from notifications where entity_id = $1 and event_type = 'purchase.delayed'", [wm.id])).rows[0].n >= 2, true);
+}));
+await test("Snag workflow: raise, assign, fix with photo, check, client confirms", () => as("amit", async (q) => {
+  const [s] = await q("insert into snags (project_id, area, category, description, raised_by) values ($1, 'Kitchen', 'carpentry', 'Shutter gap', auth.uid()) returning id", [projects.amit]);
+  await denied(q("update snags set status = 'resolved' where id = $1", [s.id]));
+  await become(q, "aditya");
+  eq((await q("select id from notifications where entity_id = $1 and event_type = 'snag.new'", [s.id])).length, 1, "manager told");
+  await denied(q("select snag_assign($1, $2, null)", [s.id, people.amit]));
+  await q("select snag_assign($1, $2, 'Please check hinges')", [s.id, people.ganesh]);
+  await become(q, "ganesh");
+  await q("select snag_start($1)", [s.id]);
+  await denied(q("select snag_submit_resolution($1, 'Fixed')", [s.id]));
+  const [f] = await FILE(projects.amit, "snag", s.id)(q);
+  await q("insert into snag_attachments (snag_id, storage_path, kind, uploaded_by) values ($1, $2, 'resolution', auth.uid())", [s.id, f.id]);
+  await q("select snag_submit_resolution($1, 'Hinges adjusted')", [s.id]);
+  await denied(q("select snag_resolve($1, true, null)", [s.id]));
+  await become(q, "amit");
+  await denied(q("insert into snag_attachments (snag_id, storage_path, kind, uploaded_by) values ($1, 'x', 'resolution', auth.uid())", [s.id]));
+  eq((await q("select id from snag_events where snag_id = $1 and event = 'fix_submitted'", [s.id])).length, 0, "internal step hidden from client");
+  await become(q, "aditya");
+  await q("select snag_resolve($1, true, 'Hinges adjusted and tested')", [s.id]);
+  await become(q, "amit");
+  eq((await q("select status from snags where id = $1", [s.id]))[0].status, "awaiting_client_confirmation");
+  await q("select snag_client_reopen($1, 'Still a gap at the top')", [s.id]);
+  eq((await q("select status, reopen_count from snags where id = $1", [s.id]))[0].reopen_count, 1);
+  await denied(q("select snag_client_confirm($1)", [s.id]));
+}));
+await test("Client confirms a resolved snag; staff-only messages stay hidden", () => as("kavita", async (q) => {
+  const [s] = await q("select id from snags limit 1");
+  await become(q, "neha");
+  await q("insert into snag_comments (snag_id, author_id, body, is_internal) values ($1, auth.uid(), 'internal note', true)", [s.id]);
+  const [f] = await FILE(projects.kavita, "snag", s.id)(q);
+  await q("insert into snag_attachments (snag_id, storage_path, kind, uploaded_by) values ($1, $2, 'resolution', auth.uid())", [s.id, f.id]);
+  await q("select snag_resolve($1, true, 'Channel replaced')", [s.id]);
+  await become(q, "kavita");
+  eq((await q("select id from snag_comments where is_internal")).length, 0, "internal comments");
+  eq((await q("select id from stored_files where id = $1", [f.id])).length, 1, "resolution photo visible");
+  await q("select snag_client_confirm($1)", [s.id]);
+  eq((await q("select status from snags where id = $1", [s.id]))[0].status, "resolved");
+  eq((await q("update snag_comments set body = 'x' where snag_id = $1 returning id", [s.id])).length, 0, "comments cannot be edited");
+}));
+await test("Client sees only documents shared with them", () => as("amit", async (q) => {
+  const docs = await q("select title, client_visible from project_documents");
+  eq(docs.length, 2); eq(docs.every((d) => d.client_visible), true);
+  eq((await q("select count(*)::int as n from stored_files where entity_type = 'document'"))[0].n, 2);
+  await denied(q("insert into project_documents (project_id, title, storage_path, file_name, uploaded_by) values ($1, 'x', 'x', 'x', auth.uid())", [projects.amit]));
+}));
+await test("Employees upload team-only documents; only the manager shares them", () => as("pooja", async (q) => {
+  await denied(q("insert into project_documents (project_id, title, storage_path, file_name, uploaded_by, client_visible) values ($1, 'x', 'x', 'x', auth.uid(), true)", [projects.amit]));
+  const [d] = await q("insert into project_documents (project_id, title, storage_path, file_name, uploaded_by) values ($1, 'Draft layout', 'x', 'x', auth.uid()) returning id", [projects.amit]);
+  await denied(q("update project_documents set client_visible = true where id = $1", [d.id]));
+  await become(q, "aditya");
+  eq((await q("update project_documents set client_visible = true where id = $1 returning id", [d.id])).length, 1);
+  await become(q, "amit");
+  eq((await q("select id from notifications where entity_id = $1 and event_type = 'document.shared'", [d.id])).length, 1);
+}));
+await test("Site update reminder reaches the manager when the client has had no update for too long", () => as(null, async () => {
+  await db.query("reset role");
+  const [p] = (await db.query("select id, site_update_frequency_days as f from projects where name like 'Rohan%'")).rows;
+  await db.query("update projects set expected_start_date = $2 where id = $1", [p.id, new Date(Date.now() - p.f * 86400000 - 3600000 * 6).toISOString().slice(0, 10)]);
+  await db.query("select run_reminders(null)");
+  eq((await db.query("select count(*)::int as n from notifications where project_id = $1 and event_type = 'site_update.due'", [p.id])).rows[0].n > 0, true);
 }));
 
 console.log("\nGeneral");

@@ -13,10 +13,13 @@ function actionHref(a: { kind: string; project_id: string; record_id: string | n
   if (a.kind === "task" && a.record_id) return `/m/tasks/${a.record_id}`;
   if (a.kind === "stage" && a.record_id) return `/m/projects/${a.project_id}/schedule#stage-${a.record_id}`;
   if (a.kind === "blocker") return `/m/projects/${a.project_id}/schedule`;
+  if (a.kind === "snag" && a.record_id) return `/m/snags/${a.record_id}`;
+  if (a.kind === "site_update" && a.record_id) return `/m/updates/${a.record_id}`;
+  if (a.kind === "purchase" && a.record_id) return `/m/projects/${a.project_id}/purchases#p-${a.record_id}`;
   return `/m/projects/${a.project_id}`;
 }
 
-const KIND_LABEL: Record<string, string> = { task: "Task", approval: "Approval", payment: "Payment", snag: "Snag", project: "Project", blocker: "Blocker", stage: "Stage" };
+const KIND_LABEL: Record<string, string> = { task: "Task", approval: "Approval", payment: "Payment", snag: "Snag", project: "Project", blocker: "Blocker", stage: "Stage", site_update: "Site update", purchase: "Purchase" };
 
 export default async function ManagementDashboard() {
   const user = await requireUser("management");
@@ -42,7 +45,7 @@ export default async function ManagementDashboard() {
         <Stat label="Pending client approvals" value={o.pending_approvals} tone={o.pending_approvals ? "amber" : undefined} href="/m/approvals?status=pending" />
         <Stat label="Overdue payments" href="/m/payments" value={o.overdue_payments} tone={o.overdue_payments ? "red" : undefined} hint={o.overdue_payments ? `${inr(o.overdue_amount)} outstanding` : undefined} />
         <Stat href="/m/payments" label="Upcoming payments (30 days)" value={o.upcoming_payments} hint={o.upcoming_payments ? inr(o.upcoming_amount) : undefined} />
-        <Stat label="Open snags" value={o.open_snags} tone={o.open_snags ? "amber" : undefined} />
+        <Stat label="Open snags" value={o.open_snags} tone={o.open_snags ? "amber" : undefined} href="/m/snags" />
         <Stat label="Overdue tasks" value={o.overdue_tasks} tone={o.overdue_tasks ? "red" : undefined} href="/m/tasks?view=overdue" />
         <Stat label="Tasks due today" value={o.tasks_today} href="/m/tasks?view=today" />
       </div>

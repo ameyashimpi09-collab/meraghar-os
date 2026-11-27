@@ -16,7 +16,7 @@ export default async function ClientAccount() {
         <section><div className="mb-6 font-serif text-2xl">Contact preferences</div><ContactForm phone={user.phone} pref={pref ?? "whatsapp"} tone="client" /></section>
         <section><div className="mb-6 font-serif text-2xl">Password</div><PasswordForm tone="client" /></section>
       </div>
-      <form action={logout} className="mt-16 md:hidden"><button className="text-sm text-stone underline">Sign out</button></form>
+      <form action={logout} className="mt-16 lg:hidden"><button className="text-sm text-stone underline">Sign out</button></form>
     </>
   );
 }
