@@ -16,6 +16,8 @@ import { fmtDate, POSSESSION_LABEL } from "@/lib/format";
 import { MEMBER_ROLE_LABEL } from "@/lib/roles";
 import { Avatar, Badge, Empty, Field, HEALTH_LABEL, HEALTH_TONE, Section } from "@/components/ui";
 import { TaskRow } from "@/components/TaskRow";
+import { ClientExperiencePanel } from "@/components/ClientExperiencePanel";
+import { EmployeeProjectExtras } from "@/components/EmployeeProjectExtras";
 
 export default async function EmployeeProject({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser("employee");
@@ -77,6 +79,8 @@ export default async function EmployeeProject({ params }: { params: Promise<{ id
               </ul>
             )}
           </Section>
+          <ClientExperiencePanel projectId={p.id} base="/e" />
+          <EmployeeProjectExtras projectId={p.id} />
           <Section title="Scope of work">
             <ul className="divide-y divide-line">
               {scope.filter((s) => s.is_included).map((s) => (

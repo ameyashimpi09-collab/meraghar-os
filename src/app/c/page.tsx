@@ -38,13 +38,13 @@ export default async function ClientHome() {
     );
   }
 
-  const { project: p, stages, approvals, payments, purchases, team, totals } = data;
+  const { project: p, stages, approvals, payments, purchases, team, totals, snags, latest } = data;
   const today = todayIST();
   const done = stages.filter((s) => s.status === "completed").length;
   const pct = stages.length ? Math.round((100 * done) / stages.length) : 0;
   const current = stages.find((s) => s.status === "in_progress" || s.status === "delayed" || s.status === "on_hold");
   const next = stages.filter((s) => s.status === "not_started").slice(0, 3);
-  const asks = approvals.length + payments.length + purchases.length;
+  const asks = approvals.length + payments.length + purchases.length + snags.length;
 
   return (
     <>
@@ -120,14 +120,23 @@ export default async function ClientHome() {
                 </li>
               ))}
               {purchases.map((x) => (
-                <li key={x.id} className="flex items-start justify-between gap-4 py-4">
-                  <div><div className="text-[11px] tracking-[0.2em] text-amber uppercase">Your purchase</div><div className="mt-1">{x.item_name}</div><div className="text-sm text-stone">{x.area} · needed at site by {fmtDate(x.required_delivery_date, { year: false })}</div></div>
-                  <div className="text-right text-sm whitespace-nowrap text-stone">Buy by {fmtDate(x.required_purchase_date, { year: false })}</div>
+                <li key={x.id}>
+                  <Link href={`/c/purchases#p-${x.id}`} className="flex items-start justify-between gap-4 py-4 hover:bg-paper/70">
+                    <div><div className={`text-[11px] tracking-[0.2em] uppercase ${x.status === "delayed" || (x.required_delivery_date && x.required_delivery_date < today) ? "text-alert" : "text-amber"}`}>{x.status === "delayed" || (x.required_delivery_date && x.required_delivery_date < today) ? "Purchase running late" : "Your purchase"}</div><div className="mt-1">{x.item_name}</div><div className="text-sm text-stone">{x.area} · needed at site by {fmtDate(x.required_delivery_date, { year: false })}</div></div>
+                    <div className="text-right text-sm whitespace-nowrap text-stone">Buy by {fmtDate(x.required_purchase_date, { year: false })}</div>
+                  </Link>
+                </li>
+              ))}
+              {snags.map((x) => (
+                <li key={x.id}>
+                  <Link href={`/c/snags/${x.id}`} className="flex items-start justify-between gap-4 py-4 hover:bg-paper/70">
+                    <div><div className="text-[11px] tracking-[0.2em] text-amber uppercase">Concern fixed · please confirm</div><div className="mt-1 line-clamp-1">{x.description}</div><div className="text-sm text-stone">{x.area}</div></div>
+                  </Link>
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-3 text-xs text-stone">Tap an item to open it. Purchase updates from here arrive in a later release.</p>
+          <p className="mt-3 text-xs text-stone">Tap an item to open it.</p>
         </section>
 
         {/* 4. What is coming next */}
@@ -145,6 +154,18 @@ export default async function ClientHome() {
           )}
         </section>
       </div>
+
+      {latest && (
+        <Link href={`/c/updates#u-${latest.id}`} className="group mt-16 grid gap-8 border-t border-divider pt-12 md:grid-cols-[1.4fr_1fr] md:items-center">
+          {latest.photo ? <div className="aspect-[16/10] overflow-hidden bg-divider"><img src={`/files/${latest.photo}`} alt="" className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.02]" /></div> : null}
+          <div>
+            <div className="text-[11px] tracking-[0.25em] text-stone uppercase">Latest from site · {new Date(latest.site_datetime).toLocaleDateString("en-IN", { day: "numeric", month: "long", timeZone: "Asia/Kolkata" })}</div>
+            <h2 className="mt-3 font-serif text-4xl leading-tight">{latest.title || latest.work_category || "Site progress"}</h2>
+            <p className="mt-3 line-clamp-3 leading-relaxed text-charcoal/80">{latest.work_completed}</p>
+            <span className="mt-4 inline-block text-sm underline decoration-divider underline-offset-4 group-hover:decoration-charcoal">See all updates{latest.photos > 1 ? ` · ${latest.photos} photos` : ""} →</span>
+          </div>
+        </Link>
+      )}
 
       {/* Payments summary + team */}
       <div className="mt-16 grid gap-10 border-t border-divider pt-12 md:grid-cols-2">

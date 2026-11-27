@@ -27,6 +27,15 @@ Interior project operating system for Meraki Interior E-Solutions LLP.
 - Database changes: `supabase/migrations/0005_release3.sql` (applied automatically at app start).
 - Tests: `npm run test:security` (61 tests), `node scripts/e2e-release3.mjs` (browser walkthrough + screenshots).
 
+## What's in Release 4 (client experience)
+- **Site updates**: the site team posts progress (area, work done, what's next, blockers) with photos. Large photos are reduced automatically. Updates go to the project manager for review, who can hide individual photos, send it back with a note, keep it internal, or share it with the client. Internal blockers and team-only photos never reach the client.
+- **Client photo gallery**: clients see shared updates as a feed and all shared photos grouped by room, with a full-screen viewer.
+- **Client purchase tracker**: managers list items the client must buy (size in mm/cm/inches with conversion, buy-by date, needed-at-site date, linked stage). Clients mark ordered/delivered, give a delivery date and remarks. Reminders go out 7/3/0 days before the buy date and when an item is late; a cross-project Procurement page shows what is at risk.
+- **Snags (concerns)**: clients or the team raise a concern with photos. The manager assigns it, the team fixes it and uploads proof, the manager checks it, and the client confirms or reopens. Every step is kept in the history; team-only messages stay internal.
+- **Documents**: upload drawings, agreements, invoices and handover documents per project, keep versions, and choose which ones the client can see.
+- Database changes: `supabase/migrations/0007_release4.sql` (applied automatically at app start).
+- Tests: `npm run test:security` (81 tests), `node scripts/e2e-release4.mjs` (browser walkthrough + screenshots).
+
 ## Quotation reader (PDF → project)
 - On a project, management uploads the quotation PDF (**Project → Quotation**). Claude (`claude-opus-5-5`, via the Anthropic API with structured output) reads every line item (room/area, item, qty, unit, rate, amount), subtotal, discount, GST and grand total.
 - Nothing is saved to the project until management checks it: the review screen flags lines where qty × rate ≠ amount and totals that don't add up, every field can be corrected, lines added or removed.

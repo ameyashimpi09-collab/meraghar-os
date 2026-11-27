@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { Db } from "./db";
 
 // Files (design images, PDFs, receipts) are stored privately in the
@@ -31,16 +32,19 @@ export function readUploads(form: FormData, field = "files"): { files: File[]; e
 export async function saveFile(
   db: Db,
   f: File,
-  ctx: { projectId: string; entityType: "approval_revision" | "payment_transaction" | "task" | "quotation"; entityId: string; userId: string },
+  ctx: { projectId: string; entityType: "approval_revision" | "payment_transaction" | "task" | "quotation" | "site_update" | "snag" | "purchase" | "document"; entityId: string; userId: string },
 ): Promise<StoredFile> {
   const buf = Buffer.from(await f.arrayBuffer());
   const name = (f.name || "file").replace(/[\\/\r\n"]/g, "_").slice(0, 150);
-  const r = await db.query(
-    `insert into stored_files (project_id, entity_type, entity_id, file_name, mime_type, size_bytes, data, uploaded_by)
-     values ($1,$2,$3,$4,$5,$6,$7,$8) returning id`,
-    [ctx.projectId, ctx.entityType, ctx.entityId, name, f.type, buf.length, buf, ctx.userId],
+  // The id is made here (not read back with RETURNING): some files only
+  // become readable once the record that points to them has been saved.
+  const id = randomUUID();
+  await db.query(
+    `insert into stored_files (id, project_id, entity_type, entity_id, file_name, mime_type, size_bytes, data, uploaded_by)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [id, ctx.projectId, ctx.entityType, ctx.entityId, name, f.type, buf.length, buf, ctx.userId],
   );
-  return { id: r.rows[0].id, name, mime: f.type, size: buf.length };
+  return { id, name, mime: f.type, size: buf.length };
 }
 
 export function fileUrl(id: string, download = false) {

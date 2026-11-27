@@ -26,7 +26,7 @@ export async function managementOverview(db: Db) {
 }
 
 export type ActionItem = {
-  kind: "task" | "approval" | "payment" | "snag" | "project" | "blocker" | "stage";
+  kind: "task" | "approval" | "payment" | "snag" | "project" | "blocker" | "stage" | "site_update" | "purchase";
   project_id: string;
   record_id: string | null;
   project_name: string;
@@ -96,11 +96,28 @@ export async function priorityActions(db: Db, limit = 25): Promise<ActionItem[]>
       union all
       -- Open snags not yet resolved
       select 'snag', s.project_id, s.id, 'Snag: ' || left(s.description, 70), coalesce(pr.full_name, 'Unassigned'),
-             coalesce(s.urgency::text, 'medium'), null::date, s.status::text,
+             coalesce(s.urgency::text, 'medium'), null::date, initcap(replace(s.status::text, '_', ' ')),
              case when s.assigned_to is null then 'Needs assignment' end
       from snags s left join profiles pr on pr.id = s.assigned_to
       where s.deleted_at is null and s.status not in ('resolved', 'awaiting_client_confirmation')
       union all
+      -- Site updates the team sent for review (Release 4)
+      select 'site_update', u.project_id, u.id, 'Review site update: ' || coalesce(u.title, u.work_category, 'Site progress'), a.full_name,
+             case when u.submitted_at < now() - interval '2 days' then 'high' else 'medium' end, null::date, 'Waiting for review',
+             'Sent ' || to_char(u.submitted_at at time zone 'Asia/Kolkata', 'FMDD Mon')
+      from site_updates u left join profiles a on a.id = u.created_by
+      where u.deleted_at is null and u.status = 'pending_review' and can_manage_project(u.project_id)
+      union all
+      -- Client purchases late for site or not bought close to their date (Release 4)
+      select 'purchase', x.project_id, x.id, 'Client purchase: ' || x.item_name, 'Client',
+             case when x.required_delivery_date < today_ist() or x.status = 'delayed' then 'critical' else 'high' end,
+             coalesce(x.required_delivery_date, x.required_purchase_date), purchase_label(x.status),
+             case when x.required_delivery_date < today_ist() then 'Client purchase delay · ' || (today_ist() - x.required_delivery_date) || ' day(s) late for site'
+                  else 'Not bought yet, needed by ' || to_char(coalesce(x.required_delivery_date, x.required_purchase_date), 'FMDD Mon') end
+      from purchase_requirements x join projects p3 on p3.id = x.project_id and p3.status in ('active', 'on_hold')
+      where x.deleted_at is null and x.responsibility <> 'company' and x.status not in ('delivered', 'installed', 'cancelled')
+        and (x.required_delivery_date < today_ist() or x.status = 'delayed'
+             or (x.status in ('not_yet_required', 'purchase_required', 'client_informed') and x.required_purchase_date <= today_ist() + 2))      union all
       -- Project set-up gaps and missed handovers
       select 'project', p.id, null::uuid,
              case when p.target_handover_date < today_ist() and p.actual_handover_date is null then 'Handover date missed'
