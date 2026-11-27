@@ -32,6 +32,7 @@ http.createServer((req, res) => {
     const pdf = doc ? Buffer.from(doc.source.data, "base64").toString("latin1") : "";
     console.log(`[mock-claude] model=${r.model} effort=${r.output_config?.effort} format=${r.output_config?.format?.type} fallbacks=${JSON.stringify(r.fallbacks)} beta=${req.headers["anthropic-beta"]} pdf=${pdf.length}B`);
     if (!pdf.startsWith("%PDF") || r.output_config?.format?.type !== "json_schema") return send(400, { type: "error", error: { type: "invalid_request_error", message: "bad request" } });
+    if (process.env.MOCK_NO_CREDIT) return send(400, { type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits." } });
     const out = process.env.MOCK_NOT_QUOTE ? { ...answer, is_quotation: false, items: [] } : answer;
     setTimeout(() => send(200, {
       id: "msg_mock", type: "message", role: "assistant", model: r.model, stop_reason: "end_turn", stop_sequence: null,

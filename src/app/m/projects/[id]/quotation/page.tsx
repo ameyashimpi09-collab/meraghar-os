@@ -53,7 +53,7 @@ function ItemsTable({ items }: { items: Item[] }) {
   );
 }
 
-function UploadForm({ projectId, replacing }: { projectId: string; replacing: boolean }) {
+function UploadForm({ projectId, replacing, aiOn }: { projectId: string; replacing: boolean; aiOn: boolean }) {
   return (
     <ActionForm action={uploadQuotationAction} className="space-y-3 p-4">
       <input type="hidden" name="project_id" value={projectId} />
@@ -64,7 +64,9 @@ function UploadForm({ projectId, replacing }: { projectId: string; replacing: bo
         <p className="mt-1 text-xs text-ink-3">PDF up to 4 MB. The app reads every line item (name, quantity, rate, amount) and the grand total, then shows them here for you to check before anything is saved to the project.</p>
       </div>
       <div className="flex justify-end">
-        <Submit pendingText="Reading the quotation… this can take up to a minute">{replacing ? "Upload and read revised quotation" : "Upload and read quotation"}</Submit>
+        {aiOn
+          ? <Submit pendingText="Reading the quotation… this can take up to a minute">{replacing ? "Upload and read revised quotation" : "Upload and read quotation"}</Submit>
+          : <Submit pendingText="Uploading…">{replacing ? "Upload revised quotation and enter lines" : "Upload quotation and enter lines"}</Submit>}
       </div>
     </ActionForm>
   );
@@ -96,7 +98,7 @@ export default async function QuotationPage({ params, searchParams }: { params: 
 
       {!aiOn && (
         <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Automatic reading is not switched on yet: the Claude API key still has to be added in the hosting settings. Until then you can upload the PDF and type the lines in by hand.
+          <b>Automatic reading unavailable: AI credits not available.</b> You can still upload the quotation PDF: it is saved with the project and you type the lines and grand total in by hand. Reading switches on automatically once the Claude API key is added.
         </div>
       )}
 
@@ -166,7 +168,7 @@ export default async function QuotationPage({ params, searchParams }: { params: 
       <Section title={current || draft ? "Upload a revised quotation" : "Upload quotation"} className="mb-6">
         {draft && <p className="border-b border-line px-4 py-2 text-xs text-ink-3">Uploading again replaces the unconfirmed upload above.</p>}
         {current && <p className="border-b border-line px-4 py-2 text-xs text-ink-3">The current quotation stays in place until you confirm the revised one. It is then kept below as history.</p>}
-        <UploadForm projectId={p.id} replacing={Boolean(current || draft)} />
+        <UploadForm projectId={p.id} replacing={Boolean(current || draft)} aiOn={aiOn} />
       </Section>
 
       {history.length > 0 && (

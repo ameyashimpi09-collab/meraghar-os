@@ -47,13 +47,16 @@ Rules:
 
 export class QuoteReadError extends Error {}
 
+export const UNAVAILABLE = "Automatic reading unavailable: AI credits not available";
+const creditProblem = (msg: string) => /credit balance|billing|purchase credits|insufficient|quota|spend limit/i.test(msg);
+
 export function quoteReaderConfigured() {
   return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
 }
 
 export async function readQuotationPdf(pdf: Buffer): Promise<ReadQuote> {
   if (!quoteReaderConfigured()) {
-    throw new QuoteReadError("Automatic reading is not switched on yet (the Claude API key is missing in the hosting settings). You can still enter the quotation by hand below.");
+    throw new QuoteReadError(`${UNAVAILABLE} (the Claude API key has not been added yet). Please enter the lines by hand below.`);
   }
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!.trim(), timeout: 170_000, maxRetries: 1 });
   let res;
@@ -74,8 +77,11 @@ export async function readQuotationPdf(pdf: Buffer): Promise<ReadQuote> {
       }],
     });
   } catch (e) {
+    if (e instanceof Anthropic.APIError && creditProblem(e.message ?? "")) {
+      throw new QuoteReadError(`${UNAVAILABLE} (the Claude account has run out of credit). Please enter the lines by hand below, and top up credits at console.anthropic.com.`);
+    }
     if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) {
-      throw new QuoteReadError("The Claude API key in the hosting settings was not accepted. Please check it.");
+      throw new QuoteReadError(`${UNAVAILABLE} (the Claude API key was not accepted). Please enter the lines by hand below.`);
     }
     if (e instanceof Anthropic.RateLimitError) throw new QuoteReadError("Too many quotations are being read right now. Please try again in a minute.");
     if (e instanceof Anthropic.BadRequestError) {
