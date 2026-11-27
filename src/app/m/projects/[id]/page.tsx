@@ -13,6 +13,7 @@ import { removeMemberAction } from "../../actions";
 import { AddMemberForm, EditProjectForm, ResetPasswordButton } from "./ProjectForms";
 import { taskList } from "@/lib/execution";
 import { TaskRow } from "@/components/TaskRow";
+import { quotationValue } from "@/lib/quotations";
 
 const STAGE_TONE = { completed: "green", in_progress: "blue", delayed: "red", on_hold: "amber", not_started: "gray", skipped: "gray" } as const;
 const STAGE_LABEL: Record<string, string> = { completed: "Completed", in_progress: "In progress", delayed: "Delayed", on_hold: "On hold", not_started: "Not started", skipped: "Skipped" };
@@ -22,7 +23,7 @@ const ENTITY_TEXT: Record<string, string> = {
   project_stages: "stage", tasks: "task", approvals: "approval", approval_revisions: "approval revision", approval_responses: "client response",
   payment_milestones: "payment milestone", payment_transactions: "payment", payment_due_date_changes: "payment due date", snags: "snag", purchase_requirements: "purchase item",
   approval_messages: "reply to client", internal_notes: "internal note", blockers: "blocker", stage_dependencies: "stage dependency",
-  task_dependencies: "task dependency", schedule_changes: "schedule change",
+  task_dependencies: "task dependency", schedule_changes: "schedule change", project_quotations: "quotation",
 };
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -44,10 +45,14 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                            from payment_milestone_balances where project_id = $1 order by sort_order, due_date nulls last`, [id])).rows
       : [];
     const openTasks = await taskList(db, { projectId: id, view: "open" });
-    return { ...d, people, audit, approvals, payments, openTasks };
+    const quote = d.project.can_manage ? await quotationValue(db, id) : null;
+    const quoteDraft = d.project.can_manage
+      ? (await db.query("select exists (select 1 from project_quotations where project_id = $1 and status = 'draft') as d", [id])).rows[0].d
+      : false;
+    return { ...d, people, audit, approvals, payments, openTasks, quote, quoteDraft };
   });
   if (!data) notFound();
-  const { project: p, members, scope, stages, people, audit, approvals, payments, openTasks } = data;
+  const { project: p, members, scope, stages, people, audit, approvals, payments, openTasks, quote, quoteDraft } = data;
   const today = todayIST();
   const payTotal = payments.reduce((s, m) => s + m.amount_paise, 0);
   const payReceived = payments.reduce((s, m) => s + m.received_paise, 0);
@@ -134,6 +139,23 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               </table>
             )}
           </Section>
+
+          {p.can_manage && (
+            <Section title="Quotation" action={<Link href={`/m/projects/${p.id}/quotation`} className="text-xs text-brand hover:underline">{quote ? "Open quotation" : "Upload quotation PDF"} →</Link>}>
+              {quote ? (
+                <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1 px-4 py-3 text-sm">
+                  <span>Quotation value <b className="text-base tabular-nums">{inr(quote.grand_total_paise)}</b></span>
+                  {quote.quote_number && <span className="text-ink-3">No. {quote.quote_number}{quote.quote_date ? ` · ${fmtDate(quote.quote_date)}` : ""}</span>}
+                  {payments.length > 0 && payTotal !== quote.grand_total_paise && (
+                    <span className="text-amber-700">Payment schedule is {inr(Math.abs(quote.grand_total_paise - payTotal))} {payTotal < quote.grand_total_paise ? "less" : "more"} than the quotation</span>
+                  )}
+                </div>
+              ) : (
+                <div className="p-4"><Empty title="No quotation yet">Upload the quotation PDF and the app reads the items and grand total for you.</Empty></div>
+              )}
+              {quoteDraft && <Link href={`/m/projects/${p.id}/quotation#review`} className="block border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 hover:underline">A quotation upload is waiting for you to check and confirm →</Link>}
+            </Section>
+          )}
 
           {p.can_manage && (
             <Section title="Payments" action={<Link href={`/m/projects/${p.id}/payments`} className="text-xs text-brand hover:underline">{payments.length ? "Open payments" : "Create payment schedule"} →</Link>}>

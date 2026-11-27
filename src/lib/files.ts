@@ -31,7 +31,7 @@ export function readUploads(form: FormData, field = "files"): { files: File[]; e
 export async function saveFile(
   db: Db,
   f: File,
-  ctx: { projectId: string; entityType: "approval_revision" | "payment_transaction" | "task"; entityId: string; userId: string },
+  ctx: { projectId: string; entityType: "approval_revision" | "payment_transaction" | "task" | "quotation"; entityId: string; userId: string },
 ): Promise<StoredFile> {
   const buf = Buffer.from(await f.arrayBuffer());
   const name = (f.name || "file").replace(/[\\/\r\n"]/g, "_").slice(0, 150);

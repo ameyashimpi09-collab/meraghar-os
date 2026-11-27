@@ -86,9 +86,15 @@ export async function GET() {
     }
   }
 
+  const keyLen = (process.env.ANTHROPIC_API_KEY ?? "").trim().length;
+  const optional = [{
+    name: "Quotation PDF reading (ANTHROPIC_API_KEY)",
+    ok: keyLen > 0,
+    detail: keyLen > 0 ? "Switched on." : "Optional. Not switched on yet: add your Claude API key as ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables. Until then quotations can be typed in by hand.",
+  }];
   const allOk = checks.every((c) => c.ok);
-  const rows = checks
-    .map((c) => `<li><b>${c.ok ? "✅" : "❌"} ${c.name}</b><br><span>${c.detail.replace(/</g, "&lt;")}</span></li>`)
+  const rows = [...checks.map((c) => ({ ...c, mark: c.ok ? "✅" : "❌" })), ...optional.map((c) => ({ ...c, mark: c.ok ? "✅" : "⚠️" }))]
+    .map((c) => `<li><b>${c.mark} ${c.name}</b><br><span>${c.detail.replace(/</g, "&lt;")}</span></li>`)
     .join("");
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meraghar OS · Setup check</title>
 <body style="font-family:system-ui;background:#f6f2eb;color:#2b2925;max-width:640px;margin:40px auto;padding:0 16px">

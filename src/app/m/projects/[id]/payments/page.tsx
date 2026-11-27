@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { withUser } from "@/lib/db";
 import { projectPayments } from "@/lib/payments";
+import { quotationValue } from "@/lib/quotations";
 import { fileUrl } from "@/lib/files";
 import { fmtDate, fmtDateTime, inr, PAYMENT_METHODS, PAYMENT_STATUS_LABEL, relDay, todayIST } from "@/lib/format";
 import { ActionForm, Submit } from "@/components/ActionForm";
@@ -25,11 +26,11 @@ export default async function ProjectPaymentsPage({ params }: { params: Promise<
   const data = await withUser(user.id, async (db) => {
     const p = (await db.query("select id, name, project_code, can_manage_project(id) as can_manage from projects where id = $1 and deleted_at is null", [id])).rows[0];
     if (!p || !p.can_manage) return p ? { p, denied: true as const } : null;
-    return { p, denied: false as const, ...(await projectPayments(db, id, { management: true })) };
+    return { p, denied: false as const, quote: await quotationValue(db, id), ...(await projectPayments(db, id, { management: true })) };
   });
   if (!data) notFound();
   if (data.denied) return <p className="text-sm text-ink-3">Only this project’s manager or an owner/admin can see its payments.</p>;
-  const { p, milestones, transactions, changes, notes, totals } = data;
+  const { p, milestones, transactions, changes, notes, totals, quote } = data;
   const today = todayIST();
   const pct = totals.total ? Math.round((100 * totals.received) / totals.total) : 0;
 
@@ -37,6 +38,20 @@ export default async function ProjectPaymentsPage({ params }: { params: Promise<
     <>
       <div className="mb-1 text-xs text-ink-3"><Link href="/m/payments" className="hover:underline">Payments</Link> / <Link href={`/m/projects/${p.id}`} className="hover:underline">{p.project_code}</Link></div>
       <PageHeader title={`Payments · ${p.name}`} subtitle="Tracking only. Nothing is ever marked as received automatically; only management can record a payment." />
+
+      {quote ? (
+        <div className={`mb-4 rounded-lg border px-4 py-2.5 text-sm ${quote.grand_total_paise === totals.total ? "border-line bg-white text-ink-2" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          Quotation value <b className="tabular-nums">{inr(quote.grand_total_paise)}</b>
+          {quote.grand_total_paise === totals.total ? " · fully covered by the payment schedule ✓"
+            : totals.total < quote.grand_total_paise ? ` · ${inr(quote.grand_total_paise - totals.total)} not yet in the payment schedule`
+            : ` · the payment schedule is ${inr(totals.total - quote.grand_total_paise)} more than the quotation`}
+          {" · "}<Link href={`/m/projects/${p.id}/quotation`} className="text-brand hover:underline">Quotation</Link>
+        </div>
+      ) : (
+        <div className="mb-4 rounded-lg border border-line bg-white px-4 py-2.5 text-sm text-ink-2">
+          No quotation on this project yet. <Link href={`/m/projects/${p.id}/quotation`} className="text-brand hover:underline">Upload the quotation PDF</Link> to check the schedule against it{milestones.length === 0 ? " and create the schedule in one step" : ""}.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Payment schedule" value={inr(totals.total)} hint={`${milestones.length} milestone${milestones.length === 1 ? "" : "s"}`} />
